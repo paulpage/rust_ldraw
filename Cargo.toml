@@ -7,4 +7,18 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-raylib = "1.0.0"
+winit = "0.19"
+# glutin = "0.22"
+# takeable-option = "0.5"
+vulkano = "0.16"
+vulkano-shaders = "0.16"
+image = "0.22"
+vulkano-win = "0.16"
+
+[dependencies.shaderc]
+version = "0.6"
+features = ["build-from-source"]
+
+[build-dependencies]
+gl_generator = "0.13"
+

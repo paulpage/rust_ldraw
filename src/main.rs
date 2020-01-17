@@ -20,7 +20,7 @@ use vulkano::pipeline::{GraphicsPipeline, GraphicsPipelineAbstract};
 use vulkano::swapchain::{self, AcquireError, PresentMode, SurfaceTransform, Swapchain, SwapchainCreationError};
 use vulkano::sync::{self, GpuFuture, FlushError};
 use vulkano_win::VkSurfaceBuild;
-use winit::{EventsLoop, Window, WindowBuilder, Event, WindowEvent};
+use winit::{EventsLoop, Window, WindowBuilder, Event, WindowEvent, DeviceEvent, ElementState};
 use cgmath::{Matrix3, Matrix4, Point3, Vector3, Rad};
 use std::collections::HashMap;
 
@@ -195,18 +195,34 @@ fn read_file(ldraw_directory: &str, filename: &str, inverted: bool) -> Vec<Polyg
                                 let mut polygon = Polygon {
                                     vertices: Vec::new()
                                 };
+                                let mut polygon2 = Polygon {
+                                    vertices: Vec::new()
+                                };
                                 if (vertex_direction == "CW" && !inverted) || (vertex_direction == "CCW" && inverted) {
+                                    // polygon.vertices.push(vertex_from(&data, 9, 10, 11));
+                                    // polygon.vertices.push(vertex_from(&data, 6, 7, 8));
+                                    // polygon.vertices.push(vertex_from(&data, 3, 4, 5));
+                                    // polygon.vertices.push(vertex_from(&data, 0, 1, 2));
                                     polygon.vertices.push(vertex_from(&data, 9, 10, 11));
                                     polygon.vertices.push(vertex_from(&data, 6, 7, 8));
                                     polygon.vertices.push(vertex_from(&data, 3, 4, 5));
-                                    polygon.vertices.push(vertex_from(&data, 0, 1, 2));
+                                    polygon2.vertices.push(vertex_from(&data, 3, 4, 5));
+                                    polygon2.vertices.push(vertex_from(&data, 0, 1, 2));
+                                    polygon2.vertices.push(vertex_from(&data, 9, 10, 11));
                                 } else {
+                                    // polygon.vertices.push(vertex_from(&data, 0, 1, 2));
+                                    // polygon.vertices.push(vertex_from(&data, 3, 4, 5));
+                                    // polygon.vertices.push(vertex_from(&data, 6, 7, 8));
+                                    // polygon.vertices.push(vertex_from(&data, 9, 10, 11));
                                     polygon.vertices.push(vertex_from(&data, 0, 1, 2));
                                     polygon.vertices.push(vertex_from(&data, 3, 4, 5));
                                     polygon.vertices.push(vertex_from(&data, 6, 7, 8));
-                                    polygon.vertices.push(vertex_from(&data, 9, 10, 11));
+                                    polygon2.vertices.push(vertex_from(&data, 6, 7, 8));
+                                    polygon2.vertices.push(vertex_from(&data, 9, 10, 11));
+                                    polygon2.vertices.push(vertex_from(&data, 0, 1, 2));
                                 }
                                 polygons.push(polygon);
+                                polygons.push(polygon2);
                             }
                             _ => {} // TODO
                         }
@@ -326,19 +342,19 @@ fn main() {
                 normals.push(Normal { normal: (n.x, n.y, n.z) });
             }
             4 => {
-                vertices.push(Vertex { position: [polygon.vertices[0].x * 0.5, polygon.vertices[0].y * 0.5, polygon.vertices[0].z * 0.5] });
-                vertices.push(Vertex { position: [polygon.vertices[1].x * 0.5, polygon.vertices[1].y * 0.5, polygon.vertices[1].z * 0.5] });
-                vertices.push(Vertex { position: [polygon.vertices[2].x * 0.5, polygon.vertices[2].y * 0.5, polygon.vertices[2].z * 0.5] });
-                vertices.push(Vertex { position: [polygon.vertices[1].x * 0.5, polygon.vertices[1].y * 0.5, polygon.vertices[1].z * 0.5] });
-                vertices.push(Vertex { position: [polygon.vertices[2].x * 0.5, polygon.vertices[2].y * 0.5, polygon.vertices[2].z * 0.5] });
-                vertices.push(Vertex { position: [polygon.vertices[3].x * 0.5, polygon.vertices[3].y * 0.5, polygon.vertices[3].z * 0.5] });
-                let n = norm(polygon);
-                normals.push(Normal { normal: (n.x, n.y, n.z) });
-                normals.push(Normal { normal: (n.x, n.y, n.z) });
-                normals.push(Normal { normal: (n.x, n.y, n.z) });
-                normals.push(Normal { normal: (n.x, n.y, n.z) });
-                normals.push(Normal { normal: (n.x, n.y, n.z) });
-                normals.push(Normal { normal: (n.x, n.y, n.z) });
+                // vertices.push(Vertex { position: [polygon.vertices[0].x * 0.5, polygon.vertices[0].y * 0.5, polygon.vertices[0].z * 0.5] });
+                // vertices.push(Vertex { position: [polygon.vertices[1].x * 0.5, polygon.vertices[1].y * 0.5, polygon.vertices[1].z * 0.5] });
+                // vertices.push(Vertex { position: [polygon.vertices[2].x * 0.5, polygon.vertices[2].y * 0.5, polygon.vertices[2].z * 0.5] });
+                // vertices.push(Vertex { position: [polygon.vertices[0].x * 0.5, polygon.vertices[0].y * 0.5, polygon.vertices[1].z * 0.5] });
+                // vertices.push(Vertex { position: [polygon.vertices[2].x * 0.5, polygon.vertices[2].y * 0.5, polygon.vertices[2].z * 0.5] });
+                // vertices.push(Vertex { position: [polygon.vertices[3].x * 0.5, polygon.vertices[3].y * 0.5, polygon.vertices[3].z * 0.5] });
+                // let n = norm(polygon);
+                // normals.push(Normal { normal: (n.x, n.y, n.z) });
+                // normals.push(Normal { normal: (n.x, n.y, n.z) });
+                // normals.push(Normal { normal: (n.x, n.y, n.z) });
+                // normals.push(Normal { normal: (n.x, n.y, n.z) });
+                // normals.push(Normal { normal: (n.x, n.y, n.z) });
+                // normals.push(Normal { normal: (n.x, n.y, n.z) });
             }
             _ => {}
         }
@@ -351,6 +367,7 @@ fn main() {
             vertex_map.insert(key, Normal { normal: (0.0, 0.0, 0.0) });
         }
     }
+    println!("{}", vertex_map.keys().len());
     // TODO - maybe I want this for smooth shading, but it doesn't fix the normals problem
     // for (i, vertex) in vertices.iter().enumerate() {
     //     let key = format!("{},{},{}", vertex.position[0], vertex.position[1], vertex.position[2]);
@@ -449,6 +466,8 @@ fn main() {
     let (mut pipeline, mut framebuffers) = window_size_dependent_setup(device.clone(), &vs, &fs, &images, render_pass.clone());
     let mut recreate_swapchain = false;
 
+    let mut rotation = Vec3 { x: 0.0, y: 0.0, z: 0.0 };
+    let mut d_rotation = Vec3 { x: 0.0, y: 0.0, z: 0.0 };
     let mut previous_frame_end = Box::new(sync::now(device.clone())) as Box<dyn GpuFuture>;
     loop {
         previous_frame_end.cleanup_finished();
@@ -472,9 +491,10 @@ fn main() {
             recreate_swapchain = false;
         }
 
+        rotation.x += d_rotation.x;
+        rotation.y += d_rotation.y;
         let uniform_buffer_subbuffer = {
-            let rotation = 0.0;
-            let rotation = Matrix3::from_angle_y(Rad(rotation as f32));
+            let rotation = Matrix3::from_angle_y(Rad(rotation.y + d_rotation.y)) * Matrix3::from_angle_x(Rad(rotation.x + d_rotation.x));
 
             let aspect_ratio = dimensions[0] as f32 / dimensions[1] as f32;
             let proj = cgmath::perspective(Rad(std::f32::consts::FRAC_PI_2), aspect_ratio, 0.01, 100.0);
@@ -553,6 +573,29 @@ fn main() {
             match ev {
                 Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => done = true,
                 Event::WindowEvent { event: WindowEvent::Resized(_), .. } => recreate_swapchain = true,
+                Event::DeviceEvent { event: DeviceEvent::Key(s) , .. } => {
+                    match s.state {
+                        ElementState::Released => {
+                            match s.scancode {
+                                103 => { d_rotation.x = 0.0 }, // up
+                                106 => { d_rotation.y = 0.0 }, // right
+                                108 => { d_rotation.x = 0.0 }, // down
+                                105 => { d_rotation.y = 0.0 }, // left
+                                _ => {}
+                            }
+                        }
+                        ElementState::Pressed => {
+                            match s.scancode {
+                                103 => d_rotation.x = 0.2, // up
+                                106 => d_rotation.y = 0.2, // right
+                                108 => d_rotation.x = -0.2, // down
+                                105 => d_rotation.y = -0.2, // left
+                                _ => {}
+                            }
+                        }
+                    }
+                    println!("{}", s.scancode);
+                }
                 _ => ()
             }
         });

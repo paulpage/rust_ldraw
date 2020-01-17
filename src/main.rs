@@ -1,21 +1,28 @@
-mod support;
 
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Write, Result};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::iter;
+use vulkano::buffer::cpu_pool::CpuBufferPool;
 use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
+use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
 use vulkano::device::{Device, DeviceExtensions};
+use vulkano::format::Format;
 use vulkano::framebuffer::{Framebuffer, FramebufferAbstract, Subpass, RenderPassAbstract};
 use vulkano::image::SwapchainImage;
+use vulkano::image::attachment::AttachmentImage;
 use vulkano::instance::{Instance, PhysicalDevice};
-use vulkano::pipeline::GraphicsPipeline;
+use vulkano::pipeline::vertex::TwoBuffersDefinition;
 use vulkano::pipeline::viewport::Viewport;
-use vulkano::sync::{self, GpuFuture, FlushError};
+use vulkano::pipeline::{GraphicsPipeline, GraphicsPipelineAbstract};
 use vulkano::swapchain::{self, AcquireError, PresentMode, SurfaceTransform, Swapchain, SwapchainCreationError};
+use vulkano::sync::{self, GpuFuture, FlushError};
 use vulkano_win::VkSurfaceBuild;
 use winit::{EventsLoop, Window, WindowBuilder, Event, WindowEvent};
+use cgmath::{Matrix3, Matrix4, Point3, Vector3, Rad};
+use std::collections::HashMap;
 
 // TODO - actually use this
 type LColor = u32;
@@ -249,14 +256,25 @@ fn write_obj(polygons: &Vec<Polygon>, filename: &str) -> Result<()> {
 
 mod vs {
     vulkano_shaders::shader!{
-        ty: "vertex", // TODO what?
+        ty: "vertex",
         src: "
         #version 450
 
-        layout(location = 0) in vec2 position;
+        layout(location = 0) in vec3 position;
+        layout(location = 1) in vec3 normal;
+
+        layout(location = 0) out vec3 v_normal;
+
+        layout(set = 0, binding = 0) uniform Data {
+            mat4 world;
+            mat4 view;
+            mat4 proj;
+        } uniforms;
 
         void main() {
-            gl_Position = vec4(position, 0.0, 1.0);
+            mat4 worldview = uniforms.view * uniforms.world;
+            v_normal = transpose(inverse(mat3(worldview))) * normal;
+            gl_Position = uniforms.proj * worldview * vec4(position, 1.0);
         }"
     }
 }
@@ -267,18 +285,78 @@ mod fs {
         src: "
         #version 450
 
+        layout(location = 0) in vec3 v_normal;
         layout(location = 0) out vec4 f_color;
 
+        const vec3 LIGHT = vec3(0.0, 0.0, 1.0);
+
         void main() {
-            f_color = vec4(1.0, 0.0, 0.0, 1.0);
+            float brightness = dot(normalize(v_normal), normalize(LIGHT));
+            vec3 dark_color = vec3(0.6, 0.0, 0.0);
+            vec3 regular_color = vec3(1.0, 0.0, 0.0);
+
+            f_color = vec4(mix(dark_color, regular_color, brightness), 1.0);
         }"
     }
 }
 
 #[derive(Default, Debug, Clone)]
-struct Vertex { position: [f32; 2] }
+struct Vertex { position: [f32; 3] }
+
+#[derive(Default, Copy, Clone)]
+pub struct Normal { normal: (f32, f32, f32) }
 
 fn main() {
+
+
+
+    let polygons = read_file("/home/paul/Downloads/ldraw/", "car.ldr", false);
+    let mut vertices = Vec::new();
+    let mut normals = Vec::new();
+    let mut vertex_map: HashMap<String, Normal> = HashMap::new();
+    for polygon in &polygons {
+        match polygon.vertices.len() {
+            3 => {
+                vertices.push(Vertex { position: [polygon.vertices[0].x * 0.5, polygon.vertices[0].y * 0.5, polygon.vertices[0].z * 0.5] });
+                vertices.push(Vertex { position: [polygon.vertices[1].x * 0.5, polygon.vertices[1].y * 0.5, polygon.vertices[1].z * 0.5] });
+                vertices.push(Vertex { position: [polygon.vertices[2].x * 0.5, polygon.vertices[2].y * 0.5, polygon.vertices[2].z * 0.5] });
+                let n = norm(polygon);
+                normals.push(Normal { normal: (n.x, n.y, n.z) });
+                normals.push(Normal { normal: (n.x, n.y, n.z) });
+                normals.push(Normal { normal: (n.x, n.y, n.z) });
+            }
+            4 => {
+                vertices.push(Vertex { position: [polygon.vertices[0].x * 0.5, polygon.vertices[0].y * 0.5, polygon.vertices[0].z * 0.5] });
+                vertices.push(Vertex { position: [polygon.vertices[1].x * 0.5, polygon.vertices[1].y * 0.5, polygon.vertices[1].z * 0.5] });
+                vertices.push(Vertex { position: [polygon.vertices[2].x * 0.5, polygon.vertices[2].y * 0.5, polygon.vertices[2].z * 0.5] });
+                vertices.push(Vertex { position: [polygon.vertices[1].x * 0.5, polygon.vertices[1].y * 0.5, polygon.vertices[1].z * 0.5] });
+                vertices.push(Vertex { position: [polygon.vertices[2].x * 0.5, polygon.vertices[2].y * 0.5, polygon.vertices[2].z * 0.5] });
+                vertices.push(Vertex { position: [polygon.vertices[3].x * 0.5, polygon.vertices[3].y * 0.5, polygon.vertices[3].z * 0.5] });
+                let n = norm(polygon);
+                normals.push(Normal { normal: (n.x, n.y, n.z) });
+                normals.push(Normal { normal: (n.x, n.y, n.z) });
+                normals.push(Normal { normal: (n.x, n.y, n.z) });
+                normals.push(Normal { normal: (n.x, n.y, n.z) });
+                normals.push(Normal { normal: (n.x, n.y, n.z) });
+                normals.push(Normal { normal: (n.x, n.y, n.z) });
+            }
+            _ => {}
+        }
+    }
+    for (i, vertex) in vertices.iter().enumerate() {
+        let key = format!("{},{},{}", vertex.position[0], vertex.position[1], vertex.position[2]);
+        if vertex_map.contains_key(&key) {
+            vertex_map.insert(key.clone(), Normal { normal: ((vertex_map[&key].normal.0 + normals[i].normal.0), (vertex_map[&key].normal.1 + normals[i].normal.1), (vertex_map[&key].normal.2 + normals[i].normal.2)) } );
+        } else {
+            vertex_map.insert(key, Normal { normal: (0.0, 0.0, 0.0) });
+        }
+    }
+    // TODO - maybe I want this for smooth shading, but it doesn't fix the normals problem
+    // for (i, vertex) in vertices.iter().enumerate() {
+    //     let key = format!("{},{},{}", vertex.position[0], vertex.position[1], vertex.position[2]);
+    //     normals[i] = vertex_map[&key];
+    // }
+
 
     let instance = {
         let extensions = vulkano_win::required_extensions();
@@ -288,17 +366,27 @@ fn main() {
     let mut event_loop = EventsLoop::new();
     let surface = WindowBuilder::new().build_vk_surface(&event_loop, instance.clone()).unwrap();
     let window = surface.window();
-    let queue_family = physical.queue_families().find(|&q| {
+
+    let mut dimensions = if let Some(dimensions) = window.get_inner_size() {
+        let dimensions: (u32, u32) = dimensions.to_physical(window.get_hidpi_factor()).into();
+        [dimensions.0, dimensions.1]
+    } else {
+        return;
+    };
+
+    let queue_family = physical.queue_families().find(|&q|
         q.supports_graphics() && surface.is_supported(q).unwrap_or(false)
-    }).unwrap();
+    ).unwrap();
     let device_ext = DeviceExtensions { khr_swapchain: true, .. DeviceExtensions::none() };
-    let (device, mut queues) = Device::new(physical, physical.supported_features(), &device_ext, [(queue_family, 0.5)].iter().cloned()).unwrap();
+    let (device, mut queues) = Device::new(
+        physical, physical.supported_features(), &device_ext, [(queue_family, 0.5)].iter().cloned()
+    ).unwrap();
     let queue = queues.next().unwrap();
     let (mut swapchain, images) = {
         let caps = surface.capabilities(physical).unwrap();
         let usage = caps.supported_usage_flags;
-        let alpha = caps.supported_composite_alpha.iter().next().unwrap();
         let format = caps.supported_formats[0].0;
+        let alpha = caps.supported_composite_alpha.iter().next().unwrap();
         let initial_dimensions = if let Some(dimensions) = window.get_inner_size() {
             let dimensions: (u32, u32) = dimensions.to_physical(window.get_hidpi_factor()).into();
             [dimensions.0, dimensions.1]
@@ -309,50 +397,63 @@ fn main() {
     };
 
 
+    // let vertices = [
+    //         Vertex { position: [-0.5, -1.0, 1.0] },
+    //         Vertex { position: [0.0, -0.25, 0.5] },
+    //         Vertex { position: [-1.0, -0.25, 1.0] },
+    // ];
+    println!("{}", vertices.len());
     let vertex_buffer = {
         vulkano::impl_vertex!(Vertex, position);
-        CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), [
-            Vertex { position: [-0.5, -0.25] },
-            Vertex { position: [0.0, 0.5] },
-            Vertex { position: [0.25, -0.1] },
-        ].iter().cloned()).unwrap()
+        vulkano::impl_vertex!(Normal, normal);
+        // CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), [
+        //     Vertex { position: [-0.5, -1.0, 1.0] },
+        //     Vertex { position: [0.0, -0.25, 0.5] },
+        //     Vertex { position: [-1.0, -0.25, 1.0] },
+        //     Vertex { position: [0.5, 1.0, -1.0] },
+        //     Vertex { position: [0.0, 0.25, 1.0] },
+        //     Vertex { position: [1.0, 0.25, 0.0] },
+        // ].iter().cloned()).unwrap()
+        CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), vertices.iter().cloned()).unwrap()
     };
+    let normals_buffer = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), normals.iter().cloned()).unwrap();
+    let uniform_buffer = CpuBufferPool::<vs::ty::Data>::new(device.clone(), BufferUsage::all());
 
     let vs = vs::Shader::load(device.clone()).expect("failed to create shader module");
     let fs = fs::Shader::load(device.clone()).expect("failed to create shader module");
 
-    let render_pass = Arc::new(vulkano::single_pass_renderpass!(device.clone(),
-        attachments: {
-            color: {
-                load: Clear,
-                store: Store,
-                format: swapchain.format(),
-                samples: 1,
+    let render_pass = Arc::new(
+        vulkano::single_pass_renderpass!(device.clone(),
+            attachments: {
+                color: {
+                    load: Clear,
+                    store: Store,
+                    format: swapchain.format(),
+                    samples: 1,
+                },
+                depth: {
+                    load: Clear,
+                    store: DontCare,
+                    format: Format::D16Unorm,
+                    samples: 1,
+                }
+            },
+            pass: {
+                color: [color],
+                depth_stencil: {depth}
             }
-        },
-        pass: {
-            color: [color],
-            depth_stencil: {}
-        }
-    ).unwrap());
-    let pipeline = Arc::new(GraphicsPipeline::start()
-        .vertex_input_single_buffer::<Vertex>()
-        .vertex_shader(vs.main_entry_point(), ())
-        .triangle_list()
-        .viewports_dynamic_scissors_irrelevant(1)
-        .fragment_shader(fs.main_entry_point(), ())
-        .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
-        .build(device.clone())
-        .unwrap());
-    let mut dynamic_state = DynamicState { line_width: None, viewports: None, scissors: None, compare_mask: None, reference: None, write_mask: None };
-    let mut framebuffers = window_size_dependent_setup(&images, render_pass.clone(), &mut dynamic_state);
-
+        ).unwrap()
+    );
+    // let mut dynamic_state = DynamicState { line_width: None, viewports: None, scissors: None, compare_mask: None, reference: None, write_mask: None };
+    // let (mut pipeline, mut framebuffers) = window_size_dependent_setup(&images, render_pass.clone(), &mut dynamic_state);
+    let (mut pipeline, mut framebuffers) = window_size_dependent_setup(device.clone(), &vs, &fs, &images, render_pass.clone());
     let mut recreate_swapchain = false;
+
     let mut previous_frame_end = Box::new(sync::now(device.clone())) as Box<dyn GpuFuture>;
     loop {
         previous_frame_end.cleanup_finished();
         if recreate_swapchain {
-            let dimensions = if let Some(dimensions) = window.get_inner_size() {
+            dimensions = if let Some(dimensions) = window.get_inner_size() {
                 let dimensions: (u32, u32) = dimensions.to_physical(window.get_hidpi_factor()).into();
                 [dimensions.0, dimensions.1]
             } else {
@@ -364,37 +465,76 @@ fn main() {
                 Err(err) => panic!("{:?}", err)
             };
             swapchain = new_swapchain;
-            framebuffers = window_size_dependent_setup(&new_images, render_pass.clone(), &mut dynamic_state);
+            // framebuffers = window_size_dependent_setup(&new_images, render_pass.clone(), &mut dynamic_state);
+            let (new_pipeline, new_framebuffers) = window_size_dependent_setup(device.clone(), &vs, &fs, &new_images, render_pass.clone());
+            pipeline = new_pipeline;
+            framebuffers = new_framebuffers;
             recreate_swapchain = false;
         }
+
+        let uniform_buffer_subbuffer = {
+            let rotation = 0.0;
+            let rotation = Matrix3::from_angle_y(Rad(rotation as f32));
+
+            let aspect_ratio = dimensions[0] as f32 / dimensions[1] as f32;
+            let proj = cgmath::perspective(Rad(std::f32::consts::FRAC_PI_2), aspect_ratio, 0.01, 100.0);
+            let view = Matrix4::look_at(Point3::new(-0.4, -0.6, -1.0), Point3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 1.0, 0.0));
+            // let view = Matrix4::look_at(Point3::new(0.3, 0.3, 1.0), Point3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 1.0, 0.0));
+            let scale = Matrix4::from_scale(0.01);
+
+            let uniform_data = vs::ty::Data {
+                world: Matrix4::from(rotation).into(),
+                view: (view * scale).into(),
+                proj: proj.into(),
+            };
+
+            uniform_buffer.next(uniform_data).unwrap()
+        };
+
+        // TODO - When this breaks in a future release, use this version
+        // let layout = pipeline.descriptor_set_layout(0).unwrap();
+        // let set = Arc::new(PersistentDescriptorSet::start(pipeline.clone())
+        let set = Arc::new(PersistentDescriptorSet::start(pipeline.clone(), 0)
+            .add_buffer(uniform_buffer_subbuffer).unwrap()
+            .build().unwrap()
+        );
 
         let (image_num, acquire_future) = match swapchain::acquire_next_image(swapchain.clone(), None) {
             Ok(r) => r,
             Err(AcquireError::OutOfDate) => {
                 recreate_swapchain = true;
                 continue;
-            },
+            }
             Err(err) => panic!("{:?}", err)
         };
 
 
-        let clear_values = vec!([0.0, 0.0, 1.0, 1.0].into());
-
-
         let command_buffer = AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family()).unwrap()
-            .begin_render_pass(framebuffers[image_num].clone(), false, clear_values)
-            .unwrap()
-            .draw(pipeline.clone(), &dynamic_state, vertex_buffer.clone(), (), ())
+            .begin_render_pass(
+                framebuffers[image_num].clone(), false,
+                vec![
+                    [0.0, 0.0, 1.0, 1.0].into(),
+                    1f32.into()
+                ]
+            ).unwrap()
+            .draw(
+                pipeline.clone(),
+                // &dynamic_state,
+                &DynamicState::none(),
+                vec!(vertex_buffer.clone(), normals_buffer.clone()),
+                set.clone(), ())
             .unwrap()
             .end_render_pass()
             .unwrap()
             .build().unwrap();
+
         let future = previous_frame_end.join(acquire_future)
             .then_execute(queue.clone(), command_buffer).unwrap()
             .then_swapchain_present(queue.clone(), swapchain.clone(), image_num)
             .then_signal_fence_and_flush();
         match future {
             Ok(future) => {
+                future.wait(None).unwrap();
                 previous_frame_end = Box::new(future) as Box<_>;
             }
             Err(FlushError::OutOfDate) => {
@@ -421,24 +561,39 @@ fn main() {
 }
 
 fn window_size_dependent_setup(
+    device: Arc<Device>,
+    vs: &vs::Shader,
+    fs: &fs::Shader,
     images: &[Arc<SwapchainImage<Window>>],
     render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
-    dynamic_state: &mut DynamicState
-) -> Vec<Arc<dyn FramebufferAbstract + Send + Sync>> {
+) -> (Arc<dyn GraphicsPipelineAbstract + Send + Sync>, Vec<Arc<dyn FramebufferAbstract + Send + Sync>> ) {
     let dimensions = images[0].dimensions();
+    let depth_buffer = AttachmentImage::transient(device.clone(), dimensions, Format::D16Unorm).unwrap();
 
-    let viewport = Viewport {
-        origin: [0.0, 0.0],
-        dimensions: [dimensions[0] as f32, dimensions[1] as f32],
-        depth_range: 0.0 .. 1.0,
-    };
-    dynamic_state.viewports = Some(vec!(viewport));
-
-    images.iter().map(|image| {
+    let framebuffers = images.iter().map(|image| {
         Arc::new(
             Framebuffer::start(render_pass.clone())
                 .add(image.clone()).unwrap()
+                .add(depth_buffer.clone()).unwrap()
                 .build().unwrap()
         ) as Arc<dyn FramebufferAbstract + Send + Sync>
-    }).collect::<Vec<_>>()
+    }).collect::<Vec<_>>();
+
+    let pipeline = Arc::new(GraphicsPipeline::start()
+        // .vertex_input_single_buffer::<Vertex>()
+        .vertex_input(TwoBuffersDefinition::<Vertex, Normal>::new())
+        .vertex_shader(vs.main_entry_point(), ())
+        .triangle_list()
+        .viewports_dynamic_scissors_irrelevant(1)
+        .viewports(iter::once(Viewport {
+            origin: [0.0, 0.0],
+            dimensions: [dimensions[0] as f32, dimensions[1] as f32],
+            depth_range: 0.0 .. 1.0,
+        }))
+        .fragment_shader(fs.main_entry_point(), ())
+        .depth_stencil_simple_depth()
+        .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
+        .build(device.clone())
+        .unwrap());
+    (pipeline, framebuffers)
 }

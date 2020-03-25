@@ -23,7 +23,7 @@ use vulkano_win::VkSurfaceBuild;
 use winit::{DeviceEvent, ElementState, Event, EventsLoop, Window, WindowBuilder, WindowEvent};
 
 mod parser;
-use parser::{norm, read_file};
+use parser::{norm, read_file, LdrawColor};
 
 mod vs {
     vulkano_shaders::shader! {
@@ -33,10 +33,10 @@ mod vs {
 
         layout(location = 0) in vec3 position;
         layout(location = 1) in vec3 normal;
-        layout(location = 2) in vec3 color;
+        layout(location = 2) in vec4 color;
 
         layout(location = 0) out vec3 v_normal;
-        layout(location = 1) out vec3 v_color;
+        layout(location = 1) out vec4 v_color;
 
         layout(set = 0, binding = 0) uniform Data {
             mat4 world;
@@ -60,7 +60,7 @@ mod fs {
         #version 450
 
         layout(location = 0) in vec3 v_normal;
-        layout(location = 1) in vec3 v_color;
+        layout(location = 1) in vec4 v_color;
         layout(location = 0) out vec4 f_color;
 
         const vec3 LIGHT = vec3(0.0, 0.0, 1.0);
@@ -68,9 +68,9 @@ mod fs {
         void main() {
             float brightness = dot(normalize(v_normal), normalize(LIGHT));
             vec3 dark_color = vec3(0.6, 0.0, 0.0);
-            vec3 regular_color = v_color;
+            vec3 regular_color = v_color.xyz;
 
-            f_color = vec4(mix(dark_color, regular_color, brightness), 1.0);
+            f_color = vec4(mix(dark_color, regular_color, brightness), v_color.w);
         }"
     }
 }
@@ -79,7 +79,7 @@ mod fs {
 struct Vertex {
     position: [f32; 3],
     normal: [f32; 3],
-    color: [f32; 3],
+    color: [f32; 4],
 }
 
 fn main() {
@@ -94,6 +94,10 @@ fn main() {
     let mut vertices = Vec::new();
 
     for polygon in &polygons {
+        let color = match polygon.color {
+            LdrawColor::RGBA(r, g, b, a) => [r, g, b, a],
+            _ => [0.0, 1.0, 0.0, 1.0],
+        };
         if polygon.points.len() == 3 {
             let n = norm(polygon);
             vertices.push(Vertex {
@@ -103,7 +107,7 @@ fn main() {
                     polygon.points[0].z * 0.5,
                 ],
                 normal: [n.x, n.y, n.z],
-                color: [0.0, 1.0, 0.5],
+                color: color,
             });
             vertices.push(Vertex {
                 position: [
@@ -112,7 +116,7 @@ fn main() {
                     polygon.points[1].z * 0.5,
                 ],
                 normal: [n.x, n.y, n.z],
-                color: [0.0, 1.0, 0.5],
+                color: color,
             });
             vertices.push(Vertex {
                 position: [
@@ -121,7 +125,7 @@ fn main() {
                     polygon.points[2].z * 0.5,
                 ],
                 normal: [n.x, n.y, n.z],
-                color: [0.0, 1.0, 0.5],
+                color: color,
             });
         }
     }

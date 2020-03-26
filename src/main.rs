@@ -2,6 +2,7 @@ use cgmath::{Matrix3, Matrix4, Point3, Rad, Vector3};
 use std::iter;
 use std::sync::Arc;
 use std::time::Instant;
+use std::f32::consts::PI;
 use vulkano::buffer::cpu_pool::CpuBufferPool;
 use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
@@ -198,15 +199,6 @@ fn main() {
         CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), vertices.iter().cloned())
             .unwrap()
     };
-    // let normals_buffer = {
-    //     vulkano::impl_vertex!(Normal, normal);
-    //     CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), normals.iter().cloned())
-    //         .unwrap()
-    // };
-    // let colors_buffer = {
-    //     vulkano::impl_vertex!(Color, color);
-    //     CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), colors.iter().cloned()).unwrap()
-    // };
     let uniform_buffer = CpuBufferPool::<vs::ty::Data>::new(device.clone(), BufferUsage::all());
 
     let vs = vs::Shader::load(device.clone()).expect("failed to create shader module");
@@ -241,6 +233,11 @@ fn main() {
 
     let mut rotation = Vector3::new(0.0, 0.0, 0.0);
     let mut d_rotation = Vector3::new(0.0, 0.0, 0.0);
+    let mut camera_position = Point3::new(0.0, 0.0, 0.0);
+    // let mut camera_position = Point3::new(-0.4, -0.6, -1.0);
+    let mut camera_relative: Vector3<f32> = Vector3::new(1.23, 2.52, 4.12);
+    let mut d_camera_position = Point3::new(0.0, 0.0, 0.0);
+    let mut d_camera_relative = Vector3::new(0.0, 0.0, 0.0);
 
     let mut previous_frame_end = Box::new(sync::now(device.clone())) as Box<dyn GpuFuture>;
     loop {
@@ -267,12 +264,27 @@ fn main() {
                 render_pass.clone(),
             );
             pipeline = new_pipeline;
-            framebuffers = new_framebuffers;
+            framebuffers= new_framebuffers;
             recreate_swapchain = false;
         }
 
         rotation.x += d_rotation.x;
         rotation.y += d_rotation.y;
+        camera_position.x += d_camera_position.x;
+        camera_position.y += d_camera_position.y;
+        camera_position.z += d_camera_position.z;
+        camera_relative.x += d_camera_relative.x;
+        camera_relative.y += d_camera_relative.y;
+        camera_relative.z += d_camera_relative.z;
+        if camera_relative.x < 0.01 {
+            camera_relative.x = 0.01;
+        }
+        if camera_relative.y < 0.001 {
+            camera_relative.y = 0.001;
+        }
+        if camera_relative.y > PI - 0.001 {
+            camera_relative.y = PI - 0.001;
+        }
         let uniform_buffer_subbuffer = {
             let rotation = Matrix3::from_angle_y(Rad(rotation.y + d_rotation.y))
                 * Matrix3::from_angle_x(Rad(rotation.x + d_rotation.x));
@@ -280,9 +292,16 @@ fn main() {
             let aspect_ratio = dimensions[0] as f32 / dimensions[1] as f32;
             let proj =
                 cgmath::perspective(Rad(std::f32::consts::FRAC_PI_2), aspect_ratio, 0.01, 100.0);
+            let z = camera_relative.x * camera_relative.y.sin() * camera_relative.z.cos();
+            let x = camera_relative.x * camera_relative.y.sin() * camera_relative.z.sin();
+            let y = camera_relative.x * camera_relative.y.cos();
+            let mut eye = camera_position;
+            eye.x += x;
+            eye.y += y;
+            eye.z += z;
             let view = Matrix4::look_at(
-                Point3::new(-0.4, -0.6, -1.0),
-                Point3::new(0.0, 0.0, 0.0),
+                eye,
+                camera_position,
                 Vector3::new(0.0, 1.0, 0.0),
             );
             let scale = Matrix4::from_scale(0.01);
@@ -377,20 +396,40 @@ fn main() {
                     match s.state {
                         ElementState::Released => {
                             match s.scancode {
-                                103 => d_rotation.x = 0.0, // up
-                                106 => d_rotation.y = 0.0, // right
-                                108 => d_rotation.x = 0.0, // down
-                                105 => d_rotation.y = 0.0, // left
+                                16 => d_camera_relative.x = 0.0,
+                                17 => d_camera_relative.y = 0.0,
+                                18 => d_camera_relative.x = 0.0,
+                                30 => d_camera_relative.z = 0.0,
+                                31 => d_camera_relative.y = 0.0,
+                                32 => d_camera_relative.z = 0.0,
+                                // 103 => d_camera_position.z = 0.0,
+                                // 106 => d_camera_position.x = 0.0,
+                                // 108 => d_camera_position.z = 0.0,
+                                // 105 => d_camera_position.x = 0.0,
+                                // 103 => d_rotation.x = 0.0, // up
+                                // 106 => d_rotation.y = 0.0, // right
+                                // 108 => d_rotation.x = 0.0, // down
+                                // 105 => d_rotation.y = 0.0, // left
                                 _ => {}
                             }
                         }
                         ElementState::Pressed => {
                             match s.scancode {
-                                103 => d_rotation.x = 0.2,  // up
-                                106 => d_rotation.y = 0.2,  // right
-                                108 => d_rotation.x = -0.2, // down
-                                105 => d_rotation.y = -0.2, // left
-                                _ => {}
+                                16 => d_camera_relative.x += 0.1,
+                                17 => d_camera_relative.y += 0.1,
+                                18 => d_camera_relative.x -= 0.1,
+                                30 => d_camera_relative.z -= 0.1,
+                                31 => d_camera_relative.y -= 0.1,
+                                32 => d_camera_relative.z += 0.1,
+                                // 103 => d_camera_position.z += 0.1,
+                                // 106 => d_camera_position.x += 0.1,
+                                // 108 => d_camera_position.z -= 0.1,
+                                // 105 => d_camera_position.x -= 0.1,
+                                // 103 => d_rotation.x = 0.2,  // up
+                                // 106 => d_rotation.y = 0.2,  // right
+                                // 108 => d_rotation.x = -0.2, // down
+                                // 105 => d_rotation.y = -0.2, // left
+                                k => println!("Keycode: {}", k),
                             }
                         }
                     }

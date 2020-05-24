@@ -54,6 +54,11 @@ pub fn init(
         gl.Enable(gl::DEPTH_TEST);
         gl.DepthFunc(gl::LESS);
 
+        // TODO see if this is effective for transparent
+        gl.Disable(gl::CULL_FACE);
+        gl.Enable(gl::BLEND);
+        gl.BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+
         let vs = create_shader(&gl, gl::VERTEX_SHADER, vertex_shader);
         let fs = create_shader(&gl, gl::FRAGMENT_SHADER, fragment_shader);
 

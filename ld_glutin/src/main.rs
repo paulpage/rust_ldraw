@@ -2,7 +2,7 @@ use glutin::event::{Event, WindowEvent, VirtualKeyCode, ElementState, MouseScrol
 use glutin::event_loop::{ControlFlow, EventLoop};
 use glutin::window::WindowBuilder;
 use glutin::{ContextBuilder, WindowedContext, PossiblyCurrent};
-use cgmath::{Matrix3, Matrix4, Rad, Deg, Vector3, Point3};
+use cgmath::{Matrix3, Matrix4, Rad, Deg, Vector3, Point3, SquareMatrix};
 use std::time::Instant;
 use std::collections::HashMap;
 
@@ -51,37 +51,48 @@ void main() {
 \0";
 
 struct Camera {
-    position: Point3<f32>,
     focus: Point3<f32>,
+    distance: f32,
+    rot_horizontal: f32,
+    rot_vertical: f32,
 }
 
 impl Camera {
     fn new() -> Self {
         Self {
-            position: Point3::new(4.0, 3.0, -3.0),
             focus: Point3::new(0.0, 0.0, 0.0),
+            distance: 10.0,
+            rot_horizontal: 0.5,
+            rot_vertical: 0.5,
         }
     }
 }
 
 struct State {
-    rotation: Vector3<f32>,
-    scale: f32,
+    // scale: f32,
     fovy: f32,
     near: f32,
     far: f32,
     camera: Camera,
+    up_pressed: bool,
+    down_pressed: bool,
+    left_pressed: bool,
+    right_pressed: bool,
+
 }
 
 impl State {
     fn new() -> Self {
         Self {
-            rotation: Vector3::new(0.0, 0.0, 0.0),
-            scale: 1.0,
+            // scale: 1.0,
             fovy: std::f32::consts::FRAC_PI_2 * 0.5,
             near: 0.01,
             far: 100.0,
             camera: Camera::new(),
+            up_pressed: false,
+            down_pressed: false,
+            left_pressed: false,
+            right_pressed: false,
         }
     }
 }
@@ -94,19 +105,20 @@ fn get_transforms(
         let size = windowed_context.window().inner_size();
         size.width as f32 / size.height as f32
     };
-    // let camera_relative: Vector3<f32> = Vector3::new(1.23, 2.52, 4.12);
-    let rotation_mat = Matrix3::from_angle_y(Deg(state.rotation.y))
-        * Matrix3::from_angle_x(Rad(state.rotation.x));
+    let cam = &state.camera;
+    let camera_position = Point3::new(
+        cam.focus.z + cam.distance * cam.rot_vertical.sin() * cam.rot_horizontal.sin(),
+        cam.focus.y + cam.distance * cam.rot_vertical.cos(),
+        cam.focus.x + cam.distance * cam.rot_vertical.sin() * cam.rot_horizontal.cos()
+    );
     let view = Matrix4::look_at(
-        state.camera.position,
+        camera_position,
         state.camera.focus,
         Vector3::new(0.0, 1.0, 0.0),
         );
-    let scale = Matrix4::from_scale(state.scale);
 
     let proj = cgmath::perspective(Rad(state.fovy), aspect, state.near, state.far);
-    let world: Matrix4<f32> = Matrix4::from(rotation_mat).into();
-    let view: Matrix4<f32> = (view * scale).into();
+    let world = Matrix4::identity();
     (world, view, proj)
 }
 
@@ -125,7 +137,7 @@ fn main() {
     let window_builder = WindowBuilder::new().with_title("A fantastic window!");
 
     let windowed_context =
-        ContextBuilder::new().build_windowed(window_builder, &event_loop).unwrap();
+        ContextBuilder::new().with_vsync(true).build_windowed(window_builder, &event_loop).unwrap();
 
     let windowed_context = unsafe { windowed_context.make_current().unwrap() };
 
@@ -182,6 +194,7 @@ fn main() {
                 vertices.push(n.x);
                 vertices.push(n.y);
                 vertices.push(n.z);
+                // TODO Might have to sort transparent faces
                 vertices.push(color[0]);
                 vertices.push(color[1]);
                 vertices.push(color[2]);
@@ -207,6 +220,24 @@ fn main() {
 
         windowed_context.window().request_redraw();
 
+        if state.left_pressed {
+            state.camera.rot_horizontal += 0.02;
+        }
+        if state.right_pressed {
+            state.camera.rot_horizontal -= 0.02;
+        }
+        if state.up_pressed {
+            state.camera.rot_vertical -= 0.02;
+            if state.camera.rot_vertical < 0.001 {
+                state.camera.rot_vertical = 0.001;
+            }
+        }
+        if state.down_pressed {
+            state.camera.rot_vertical += 0.02;
+            if state.camera.rot_vertical > std::f32::consts::PI {
+                state.camera.rot_vertical = std::f32::consts::PI - 0.001;
+            }
+        }
         let (world, view, proj) = get_transforms(&windowed_context, &state);
 
         match event {
@@ -219,33 +250,22 @@ fn main() {
                     *control_flow = ControlFlow::Exit
                 }
                 WindowEvent::KeyboardInput { input, .. } => {
-                    if input.state == ElementState::Pressed {
-                        match input.virtual_keycode {
-                            Some(VirtualKeyCode::A) => {
-                                state.rotation.y += 2.0;
-                            }
-                            Some(VirtualKeyCode::D) => {
-                                state.rotation.y -= 2.0;
-                            }
-                            Some(VirtualKeyCode::R) => {
-                                state.far += 1.0;
-                            }
-                            Some(VirtualKeyCode::F) => {
-                                if state.far - 1.0 > state.near {
-                                    state.far -= 1.0;
-                                }
-                            }
-                            _ => {}
-                        }
+                    let pressed = input.state == ElementState::Pressed;
+                    match input.virtual_keycode {
+                        Some(VirtualKeyCode::A) => state.left_pressed = pressed,
+                        Some(VirtualKeyCode::D) => state.right_pressed = pressed,
+                        Some(VirtualKeyCode::W) => state.up_pressed = pressed,
+                        Some(VirtualKeyCode::S) => state.down_pressed = pressed,
+                        _ => {}
                     }
                 }
                 WindowEvent::MouseWheel { delta, .. } => {
                     match delta {
                         MouseScrollDelta::LineDelta(x, y) => {
-                            state.scale *= (10.0 + y as f32) / 10.0;
+                            state.camera.distance *= (10.0 - y as f32) / 10.0;
                         }
                         MouseScrollDelta::PixelDelta(d) => {
-                            state.scale *= (100.0 + d.y as f32) / 100.0;
+                            state.camera.distance *= (100.0 - d.y as f32) / 100.0;
                         }
                     }
                 }

@@ -3,6 +3,8 @@ use glutin::event_loop::{ControlFlow, EventLoop};
 use glutin::window::WindowBuilder;
 use glutin::{ContextBuilder, WindowedContext, PossiblyCurrent};
 use cgmath::{Matrix3, Matrix4, Rad, Deg, Vector3, Point3};
+use std::time::Instant;
+use std::collections::HashMap;
 
 mod graphics;
 mod parser;
@@ -48,12 +50,27 @@ void main() {
 }
 \0";
 
+struct Camera {
+    position: Point3<f32>,
+    focus: Point3<f32>,
+}
+
+impl Camera {
+    fn new() -> Self {
+        Self {
+            position: Point3::new(4.0, 3.0, -3.0),
+            focus: Point3::new(0.0, 0.0, 0.0),
+        }
+    }
+}
+
 struct State {
     rotation: Vector3<f32>,
     scale: f32,
     fovy: f32,
     near: f32,
     far: f32,
+    camera: Camera,
 }
 
 impl State {
@@ -64,6 +81,7 @@ impl State {
             fovy: std::f32::consts::FRAC_PI_2 * 0.5,
             near: 0.01,
             far: 100.0,
+            camera: Camera::new(),
         }
     }
 }
@@ -76,14 +94,12 @@ fn get_transforms(
         let size = windowed_context.window().inner_size();
         size.width as f32 / size.height as f32
     };
-    let camera_position = Point3::new(0.0, 0.0, 0.0);
     // let camera_relative: Vector3<f32> = Vector3::new(1.23, 2.52, 4.12);
     let rotation_mat = Matrix3::from_angle_y(Deg(state.rotation.y))
         * Matrix3::from_angle_x(Rad(state.rotation.x));
-    let eye = Point3::new(4.0, 3.0, -3.0);
     let view = Matrix4::look_at(
-        eye,
-        camera_position,
+        state.camera.position,
+        state.camera.focus,
         Vector3::new(0.0, 1.0, 0.0),
         );
     let scale = Matrix4::from_scale(state.scale);
@@ -128,7 +144,9 @@ fn main() {
     let mut x_max = f32::MIN;
     let mut y_max = f32::MIN;
     let mut z_max = f32::MIN;
-    let polygons = parser::read_file("/home/paul/Downloads/ldraw/", "car.ldr", false);
+    let start = Instant::now();
+    let polygons = parser::load("/home/paul/Downloads/ldraw/", "car.ldr");
+    let middle = Instant::now();
     let mut vertices = Vec::new();
     for polygon in &polygons {
         let color = match polygon.color {
@@ -171,6 +189,11 @@ fn main() {
             }
         }
     }
+    println!(
+        "Total load time: {} ms (bake time: {} ms)",
+        start.elapsed().as_millis(),
+        middle.elapsed().as_millis()
+    );
 
     let gl = graphics::init(
         &windowed_context.context(),
@@ -219,14 +242,10 @@ fn main() {
                 WindowEvent::MouseWheel { delta, .. } => {
                     match delta {
                         MouseScrollDelta::LineDelta(x, y) => {
-                            println!("line");
                             state.scale *= (10.0 + y as f32) / 10.0;
-                            // state.scale += 0.2 * y;
                         }
                         MouseScrollDelta::PixelDelta(d) => {
-                            println!("pixel");
                             state.scale *= (100.0 + d.y as f32) / 100.0;
-                            // state.scale += 0.02 * (d.y as f32);
                         }
                     }
                 }

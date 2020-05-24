@@ -4,13 +4,15 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Result, Write};
 use std::path::PathBuf;
 use std::time::Instant;
+use std::collections::HashMap;
 
+#[derive(Clone, Debug)]
 pub struct Polygon {
     pub points: Vec<Point3<f32>>,
     pub color: LdrawColor,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum LdrawColor {
     Main,
     Complement,
@@ -231,7 +233,20 @@ pub fn norm(p: &Polygon) -> Vector3<f32> {
     }
 }
 
-pub fn read_file(ldraw_directory: &str, filename: &str, inverted: bool) -> Vec<Polygon> {
+#[derive(Hash, PartialEq, Debug)]
+pub struct CacheKey {
+    name: String,
+    inverted: bool,
+}
+
+// TODO can probably just derive Eq
+impl Eq for CacheKey {}
+
+
+fn read_file(cache: &mut HashMap<CacheKey, Vec<Polygon>>, ldraw_directory: &str, filename: &str, inverted: bool) -> Vec<Polygon> {
+    if let Some(polygon) = cache.get(&CacheKey { name: filename.into(), inverted }) {
+        return polygon.clone();
+    }
     let mut polygons = Vec::new();
     // TODO: Also allow current part's directory
     let filename = filename.to_lowercase();
@@ -318,6 +333,7 @@ pub fn read_file(ldraw_directory: &str, filename: &str, inverted: bool) -> Vec<P
                             invert_this = !invert_this;
                         }
                         let sub_polygons = read_file(
+                            cache,
                             ldraw_directory,
                             &str::replace(data[12], "\\", "/"),
                             invert_this,
@@ -401,7 +417,13 @@ pub fn read_file(ldraw_directory: &str, filename: &str, inverted: bool) -> Vec<P
             }
         }
     }
+    cache.insert(CacheKey { name: filename.into(), inverted }, polygons.to_vec());
     polygons
+}
+
+pub fn load(ldraw_directory: &str, filename: &str) -> Vec<Polygon> {
+    let mut cache = HashMap::new();
+    read_file(&mut cache, ldraw_directory, filename, false)
 }
 
 pub fn write_obj(polygons: &[Polygon], filename: &str) -> Result<()> {

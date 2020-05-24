@@ -1,4 +1,5 @@
 use cgmath::{Matrix3, Matrix4, Point3, Rad, Vector3};
+use cgmath::{SquareMatrix};
 use std::iter;
 use std::sync::Arc;
 use std::time::Instant;
@@ -64,11 +65,11 @@ mod fs {
         layout(location = 1) in vec4 v_color;
         layout(location = 0) out vec4 f_color;
 
-        const vec3 LIGHT = vec3(0.0, 0.0, 1.0);
+        const vec3 LIGHT = vec3(0.8, 0.8, 0.8);
 
         void main() {
             float brightness = dot(normalize(v_normal), normalize(LIGHT));
-            vec3 dark_color = vec3(0.6, 0.0, 0.0);
+            vec3 dark_color = v_color.xyz * 0.1;
             vec3 regular_color = v_color.xyz;
 
             f_color = vec4(mix(dark_color, regular_color, brightness), v_color.w);
@@ -85,7 +86,7 @@ struct Vertex {
 
 fn main() {
     let start = Instant::now();
-    let polygons = read_file("/home/paul/Downloads/ldraw/", "car.ldr", false);
+    let polygons = read_file("/home/paul/Downloads/ldraw/", "3001.dat", false);
     println!(
         "Loaded {} polygons in {} ms.",
         polygons.len(),
@@ -234,10 +235,16 @@ fn main() {
     let mut rotation = Vector3::new(0.0, 0.0, 0.0);
     let mut d_rotation = Vector3::new(0.0, 0.0, 0.0);
     let mut camera_position = Point3::new(0.0, 0.0, 0.0);
-    // let mut camera_position = Point3::new(-0.4, -0.6, -1.0);
     let mut camera_relative: Vector3<f32> = Vector3::new(1.23, 2.52, 4.12);
     let mut d_camera_position = Point3::new(0.0, 0.0, 0.0);
     let mut d_camera_relative = Vector3::new(0.0, 0.0, 0.0);
+
+    let mut left = 0.0;
+    let mut right = 0.0;
+    let mut up = 0.0;
+    let mut down = 0.0;
+    let mut zoom_in = 0.0;
+    let mut zoom_out = 0.0;
 
     let mut previous_frame_end = Box::new(sync::now(device.clone())) as Box<dyn GpuFuture>;
     loop {
@@ -273,9 +280,9 @@ fn main() {
         camera_position.x += d_camera_position.x;
         camera_position.y += d_camera_position.y;
         camera_position.z += d_camera_position.z;
-        camera_relative.x += d_camera_relative.x;
-        camera_relative.y += d_camera_relative.y;
-        camera_relative.z += d_camera_relative.z;
+        camera_relative.x += (zoom_in - zoom_out);
+        camera_relative.y += (down - up);
+        camera_relative.z += (left - right);
         if camera_relative.x < 0.01 {
             camera_relative.x = 0.01;
         }
@@ -396,39 +403,23 @@ fn main() {
                     match s.state {
                         ElementState::Released => {
                             match s.scancode {
-                                16 => d_camera_relative.x = 0.0,
-                                17 => d_camera_relative.y = 0.0,
-                                18 => d_camera_relative.x = 0.0,
-                                30 => d_camera_relative.z = 0.0,
-                                31 => d_camera_relative.y = 0.0,
-                                32 => d_camera_relative.z = 0.0,
-                                // 103 => d_camera_position.z = 0.0,
-                                // 106 => d_camera_position.x = 0.0,
-                                // 108 => d_camera_position.z = 0.0,
-                                // 105 => d_camera_position.x = 0.0,
-                                // 103 => d_rotation.x = 0.0, // up
-                                // 106 => d_rotation.y = 0.0, // right
-                                // 108 => d_rotation.x = 0.0, // down
-                                // 105 => d_rotation.y = 0.0, // left
+                                16 => zoom_out = 0.0,
+                                17 => up = 0.0,
+                                18 => zoom_in = 0.0,
+                                30 => left = 0.0,
+                                31 => down = 0.0,
+                                32 => right = 0.0,
                                 _ => {}
                             }
                         }
                         ElementState::Pressed => {
                             match s.scancode {
-                                16 => d_camera_relative.x += 0.1,
-                                17 => d_camera_relative.y += 0.1,
-                                18 => d_camera_relative.x -= 0.1,
-                                30 => d_camera_relative.z -= 0.1,
-                                31 => d_camera_relative.y -= 0.1,
-                                32 => d_camera_relative.z += 0.1,
-                                // 103 => d_camera_position.z += 0.1,
-                                // 106 => d_camera_position.x += 0.1,
-                                // 108 => d_camera_position.z -= 0.1,
-                                // 105 => d_camera_position.x -= 0.1,
-                                // 103 => d_rotation.x = 0.2,  // up
-                                // 106 => d_rotation.y = 0.2,  // right
-                                // 108 => d_rotation.x = -0.2, // down
-                                // 105 => d_rotation.y = -0.2, // left
+                                16 => zoom_out = 0.1,
+                                17 => up = 0.1,
+                                18 => zoom_in = 0.1,
+                                30 => left = 0.1,
+                                31 => down = 0.1,
+                                32 => right = 0.1,
                                 k => println!("Keycode: {}", k),
                             }
                         }

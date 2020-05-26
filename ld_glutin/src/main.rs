@@ -1,4 +1,4 @@
-use glutin::event::{Event, WindowEvent, VirtualKeyCode, ElementState, MouseScrollDelta};
+use glutin::event::{Event, WindowEvent, VirtualKeyCode, ElementState, MouseScrollDelta, MouseButton};
 use glutin::event_loop::{ControlFlow, EventLoop};
 use glutin::window::WindowBuilder;
 use glutin::{ContextBuilder, WindowedContext, PossiblyCurrent};
@@ -9,20 +9,43 @@ use std::collections::HashMap;
 mod graphics;
 mod parser;
 
-const VS_SRC: &'static [u8] = b"
-#version 330
-precision mediump float;
+const VS_SRC_2D: &'static [u8] = b"
+#version 330 core
 
-attribute vec3 position;
-attribute vec3 normal;
-attribute vec4 color;
+layout (location = 0) in vec2 position;
+layout (location = 1) in vec4 color;
+
+out vec4 v_color;
+
+void main() {
+    v_color = color;
+    gl_Position = vec4(position, 0.0, 1.0);
+}
+\0";
+
+const FS_SRC_2D: &'static [u8] = b"
+#version 330 core
+
+in vec4 v_color;
+
+void main() {
+    gl_FragColor = v_color;
+}
+\0";
+
+const VS_SRC: &'static [u8] = b"
+#version 330 core
+
+layout (location = 0) in vec3 position;
+layout (location = 1) in vec3 normal;
+layout (location = 2) in vec4 color;
 
 uniform mat4 world;
 uniform mat4 view;
 uniform mat4 proj;
 
-varying vec3 v_normal;
-varying vec4 v_color;
+out vec3 v_normal;
+out vec4 v_color;
 
 void main() {
     mat4 worldview = view * world;
@@ -33,11 +56,10 @@ void main() {
 \0";
 
 const FS_SRC: &'static [u8] = b"
-#version 330
-precision mediump float;
+#version 330 core
 
-varying vec3 v_normal;
-varying vec4 v_color;
+in vec3 v_normal;
+in vec4 v_color;
 
 const vec3 LIGHT = vec3(1.0, 1.0, 1.0);
 
@@ -66,10 +88,20 @@ impl Camera {
             rot_vertical: 0.5,
         }
     }
+
+    fn rotate(&mut self, horizontal: f32, vertical: f32) {
+        self.rot_horizontal += horizontal;
+        self.rot_vertical += vertical;
+        if self.rot_vertical < 0.001 {
+            self.rot_vertical = 0.001;
+        }
+        if self.rot_vertical > std::f32::consts::PI {
+            self.rot_vertical = std::f32::consts::PI - 0.001;
+        }
+    }
 }
 
 struct State {
-    // scale: f32,
     fovy: f32,
     near: f32,
     far: f32,
@@ -78,13 +110,14 @@ struct State {
     down_pressed: bool,
     left_pressed: bool,
     right_pressed: bool,
-
+    mouse_x: f32,
+    mouse_y: f32,
+    middle_pressed: bool,
 }
 
 impl State {
     fn new() -> Self {
         Self {
-            // scale: 1.0,
             fovy: std::f32::consts::FRAC_PI_2 * 0.5,
             near: 0.01,
             far: 100.0,
@@ -93,6 +126,9 @@ impl State {
             down_pressed: false,
             left_pressed: false,
             right_pressed: false,
+            mouse_x: 0.0,
+            mouse_y: 0.0,
+            middle_pressed: false,
         }
     }
 }
@@ -142,13 +178,6 @@ fn main() {
     let windowed_context = unsafe { windowed_context.make_current().unwrap() };
 
     let mut state = State::new();
-
-    let mut left = 0.0;
-    let mut right = 0.0;
-    let mut up = 0.0;
-    let mut down = 0.0;
-    let mut zoom_in = 0.0;
-    let mut zoom_out = 0.0;
 
     let mut x_min = f32::MAX;
     let mut y_min = f32::MAX;
@@ -208,11 +237,20 @@ fn main() {
         middle.elapsed().as_millis()
     );
 
-    let gl = graphics::init(
+    let vertices_2d = vec![
+        -0.5, -0.5, 1.0, 0.0, 0.0, 1.0,
+        0.5, -0.5, 1.0, 0.0, 0.0, 1.0,
+        0.5, 0.5, 1.0, 0.0, 0.0, 1.0,
+    ];
+
+    let gl: graphics::Graphics = graphics::init(
         &windowed_context.context(),
         VS_SRC,
         FS_SRC,
-        &vertices,
+        VS_SRC_2D,
+        FS_SRC_2D,
+        vertices,
+        vertices_2d
     );
 
     event_loop.run(move |event, _, control_flow| {
@@ -269,10 +307,26 @@ fn main() {
                         }
                     }
                 }
+                WindowEvent::MouseInput { button, state: mouse_state, .. } => {
+                    let pressed = mouse_state == ElementState::Pressed;
+                    match button {
+                        MouseButton::Middle => state.middle_pressed = pressed,
+                        _ => {}
+                    }
+                }
+                WindowEvent::CursorMoved { position, .. } => {
+                    let dx = position.x as f32 - state.mouse_x;
+                    let dy = position.y as f32 - state.mouse_y;
+                    if state.middle_pressed {
+                        state.camera.rotate(dx * -0.005, dy * -0.005);
+                    }
+                    state.mouse_x = position.x as f32;
+                    state.mouse_y = position.y as f32;
+                }
                 _ => (),
             },
             Event::RedrawRequested(_) => {
-                gl.draw_frame(mat_to_array(world), mat_to_array(view), mat_to_array(proj), [1.0, 0.5, 0.7, 1.0]);
+                gl.draw(mat_to_array(world), mat_to_array(view), mat_to_array(proj));
                 windowed_context.swap_buffers().unwrap();
             },
             _ => (),

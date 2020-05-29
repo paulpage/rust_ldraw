@@ -5,9 +5,53 @@ use glutin::{ContextBuilder, WindowedContext, PossiblyCurrent};
 use cgmath::{Matrix3, Matrix4, Rad, Deg, Vector3, Point3, SquareMatrix};
 use std::time::Instant;
 use std::collections::HashMap;
+use rusttype::gpu_cache::Cache;
+use rusttype::{point, vector, Font, PositionedGlyph, Rect, Scale};
 
 mod graphics;
 mod parser;
+
+fn layout_paragraph<'a>(
+    font: &Font<'a>,
+    scale: Scale,
+    width: u32,
+    text: &str,
+) -> Vec<PositionedGlyph<'a>> {
+    let mut result = Vec::new();
+    let v_metrics = font.v_metrics(scale);
+    let advance_height = v_metrics.ascent - v_metrics.descent + v_metrics.line_gap;
+    let mut caret = point(0.0, v_metrics.ascent);
+    let mut last_glyph_id = None;
+    for c in text.chars() {
+        if c.is_control() {
+            match c {
+                '\r' => {
+                    caret = point(0.0, caret.y + advance_height);
+                }
+                '\n' => {}
+                _ => {}
+            }
+            continue;
+        }
+        let base_glyph = font.glyph(c);
+        if let Some(id) = last_glyph_id.take() {
+            caret.x += font.pair_kerning(scale, id, base_glyph.id());
+        }
+        last_glyph_id = Some(base_glyph.id());
+        let mut glyph = base_glyph.scaled(scale).positioned(caret);
+        if let Some(bb) = glyph.pixel_bounding_box() {
+            if bb.max.x > width as i32 {
+                caret = point(0.0, caret.y + advance_height);
+                glyph.set_position(caret);
+                last_glyph_id = None;
+            }
+        }
+        caret.x += glyph.unpositioned().h_metrics().advance_width;
+        result.push(glyph);
+    }
+    result
+}
+
 
 const VS_SRC_2D: &'static [u8] = b"
 #version 330 core
@@ -46,11 +90,15 @@ uniform mat4 proj;
 
 out vec3 v_normal;
 out vec4 v_color;
+out vec3 fragment_position;
 
 void main() {
     mat4 worldview = view * world;
     v_normal = transpose(inverse(mat3(worldview))) * normal;
     v_color = color;
+    // TODO check if world is correct to use below, original said model
+    fragment_position = vec3(world * vec4(position, 1.0));
+    // fragment_position = position;
     gl_Position = proj * worldview * vec4(position, 1.0);
 }
 \0";
@@ -60,15 +108,40 @@ const FS_SRC: &'static [u8] = b"
 
 in vec3 v_normal;
 in vec4 v_color;
+in vec3 fragment_position;
 
-const vec3 LIGHT = vec3(1.0, 1.0, 1.0);
+struct Light {
+    vec3 position;
+    vec3 direction;
+
+    vec3 ambient;
+    vec3 diffuse;
+    vec3 specular;
+};
+
+uniform vec3 view_position;
+uniform Light light;
+
+// const vec3 LIGHT = vec3(1.0, 1.0, 1.0);
 
 void main() {
-    float brightness = dot(normalize(v_normal), normalize(LIGHT));
-    vec3 dark_color = v_color.xyz * 0.2;
-    vec3 regular_color = v_color.xyz;
 
-    gl_FragColor = vec4(mix(dark_color, regular_color, brightness), v_color.w);
+    vec3 norm = normalize(v_normal);
+    vec3 light_direction = normalize(light.position - fragment_position);
+    vec3 view_direction = normalize(view_position - fragment_position);
+    vec3 reflection_direction = reflect(-light_direction, norm);
+
+    vec3 ambient = light.ambient; 
+    vec3 diffuse = light.diffuse * max(dot(norm, light_direction), 0.0);
+    vec3 specular = light.specular * pow(max(dot(view_direction, reflection_direction), 0.0), 32);
+
+    gl_FragColor = vec4((ambient + diffuse + specular), 1.0) * v_color;
+
+    // float brightness = dot(normalize(v_normal), normalize(LIGHT));
+    // vec3 dark_color = v_color.xyz * 0.2;
+    // vec3 regular_color = v_color.xyz;
+
+    // gl_FragColor = vec4(mix(dark_color, regular_color, brightness), v_color.w);
 }
 \0";
 
@@ -98,6 +171,14 @@ impl Camera {
         if self.rot_vertical > std::f32::consts::PI {
             self.rot_vertical = std::f32::consts::PI - 0.001;
         }
+    }
+
+    fn position(&self) -> Point3<f32> {
+        Point3::new(
+            self.focus.z + self.distance * self.rot_vertical.sin() * self.rot_horizontal.sin(),
+            self.focus.y + self.distance * self.rot_vertical.cos(),
+            self.focus.x + self.distance * self.rot_vertical.sin() * self.rot_horizontal.cos()
+        )
     }
 }
 
@@ -141,14 +222,8 @@ fn get_transforms(
         let size = windowed_context.window().inner_size();
         size.width as f32 / size.height as f32
     };
-    let cam = &state.camera;
-    let camera_position = Point3::new(
-        cam.focus.z + cam.distance * cam.rot_vertical.sin() * cam.rot_horizontal.sin(),
-        cam.focus.y + cam.distance * cam.rot_vertical.cos(),
-        cam.focus.x + cam.distance * cam.rot_vertical.sin() * cam.rot_horizontal.cos()
-    );
     let view = Matrix4::look_at(
-        camera_position,
+        state.camera.position(),
         state.camera.focus,
         Vector3::new(0.0, 1.0, 0.0),
         );
@@ -169,6 +244,9 @@ fn mat_to_array(m: Matrix4<f32>) -> [f32; 16] {
 }
 
 fn main() {
+
+
+
     let event_loop = EventLoop::new();
     let window_builder = WindowBuilder::new().with_title("A fantastic window!");
 
@@ -178,6 +256,26 @@ fn main() {
     let windowed_context = unsafe { windowed_context.make_current().unwrap() };
 
     let mut state = State::new();
+
+
+    // FONT ----------------------------------------
+
+    let text = "Hello, World!";
+
+    let font_data = include_bytes!("../data/LiberationSans-Regular.ttf");
+    let font = Font::try_from_bytes(font_data as &[u8]).unwrap();
+
+    // TODO window scale factor
+    let scale = 1.0;
+    let (cache_width, cache_height) = ((512.0 * scale) as u32, (512.0 * scale) as u32);
+    let mut cache: Cache<'static> = Cache::builder()
+        .dimensions(cache_width, cache_height)
+        .build();
+
+    let cache_tex_data: Vec<u8> = Vec::with_capacity(cache_width as usize * cache_height as usize);
+
+    // ----------------------------------------
+
 
     let mut x_min = f32::MAX;
     let mut y_min = f32::MAX;
@@ -250,8 +348,11 @@ fn main() {
         VS_SRC_2D,
         FS_SRC_2D,
         vertices,
-        vertices_2d
+        vertices_2d,
+        vec![0, 0, 0, 0] // TODO pass in text texture I guess, this is just nonsense to make it compile
     );
+
+    let font = graphics::Font::from_ttf_data(include_bytes!("../data/LiberationSans-Regular.ttf"));
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -326,7 +427,18 @@ fn main() {
                 _ => (),
             },
             Event::RedrawRequested(_) => {
-                gl.draw(mat_to_array(world), mat_to_array(view), mat_to_array(proj));
+                let p = state.camera.position();
+                let view_position = [p.x, p.y, p.z];
+                let light = [
+                    -5.0, -5.0, -5.0,
+                    1.0, 1.0, 1.0,
+
+                    0.1, 0.1, 0.1,
+                    0.8, 0.8, 0.8,
+                    1.0, 1.0, 1.0,
+                ];
+                gl.draw(mat_to_array(world), mat_to_array(view), mat_to_array(proj), view_position, light);
+                font.draw_text(&gl.gl, "Hello, world!", 0.0, 0.0, 32.0, [1.0, 0.0, 0.0, 1.0]);
                 windowed_context.swap_buffers().unwrap();
             },
             _ => (),

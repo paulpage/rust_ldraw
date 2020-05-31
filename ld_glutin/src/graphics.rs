@@ -8,9 +8,9 @@ use rusttype::{point, vector, PositionedGlyph, Rect, Scale};
 const VS_SRC_TEXT: &'static [u8] = b"
 #version 330 core
 
-in vec2 position;
-in vec2 tex_coords;
-in vec4 color;
+layout (location = 0) in vec2 position;
+layout (location = 1) in vec2 tex_coords;
+layout (location = 2) in vec4 color;
 
 out vec2 v_tex_coords;
 out vec4 v_color;
@@ -49,14 +49,14 @@ impl<'a> Font {
     pub fn draw_text(&self, gl: &gl::Gl, text: &str, x: f32, y: f32, scale: f32, color: [f32; 4]) {
 
         // Draw the font data into a buffer
-        let scale = Scale::uniform(scale);
-        let v_metrics = self.font.v_metrics(scale);
+        let font_scale = Scale::uniform(scale);
+        let v_metrics = self.font.v_metrics(font_scale);
         let glyphs: Vec<_> = self.font
-            .layout(text, scale, point(x, y + v_metrics.ascent))
+            .layout(text, font_scale, point(x, y + v_metrics.ascent))
             .collect();
 
         let glyphs_height = (v_metrics.ascent - v_metrics.descent).ceil() as u32;
-        let glyphs_width = {
+        let (my_min_x, glyphs_width) = {
             let min_x = glyphs
                 .first()
                 .map(|g| g.pixel_bounding_box().unwrap().min.x)
@@ -65,17 +65,16 @@ impl<'a> Font {
                 .last()
                 .map(|g| g.pixel_bounding_box().unwrap().max.x)
                 .unwrap();
-            (max_x - min_x) as u32
+            (min_x, (max_x - min_x) as u32)
         };
 
         let tex_width = glyphs_width as usize;
         let tex_height = glyphs_height as usize;
 
-        let mut buffer = vec![0.0; tex_width * tex_height * 4];
+        let mut buffer: Vec<f32> = vec![0.0; tex_width * tex_height];
 
 
 
-        // let buffer = Vec::with_capacity((glyphs_width * glyphs_height * 4) as usize);
         for glyph in glyphs {
             if let Some(bounding_box) = glyph.pixel_bounding_box() {
 
@@ -85,62 +84,57 @@ impl<'a> Font {
                 glyph.draw(|x, y, v| {
                     let x = x as usize;
                     let y = y as usize;
-                    let index = (y + min_y) * tex_height + x + min_x;
-                    // let index = ((y as i32 + bounding_box.min.y) * glyphs_height as i32 + x + bounding_box.min.x) as usize;
-                    buffer[index] = color[0];
-                    buffer[index + 1] = color[1];
-                    buffer[index + 2] = color[2];
-                    buffer[index + 3] = v * color[3];
+                    // let index = ((y + min_y) * tex_width + (x + min_x));
+                    let index = (y + min_y) * tex_width + (x + min_x);
+                    buffer[index] = v;
                 });
             }
         }
 
         // Load the texture from the buffer
-        let mut id: u32 = 0;
-        let (program, uniform) = unsafe {
+        let (program, uniform, id) = unsafe {
+            let mut id: u32 = 0;
             gl.GenTextures(1, &mut id);
             gl.ActiveTexture(gl::TEXTURE0);
             gl.BindTexture(gl::TEXTURE_2D, id);
+
+            // TODO Decide what these should be.
+            gl.TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as GLint);
+            gl.TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as GLint);
+            gl.TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as GLint);
+            gl.TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as GLint);
+
             gl.TexImage2D(
                 gl::TEXTURE_2D,
                 0,
-                gl::RGBA as GLint,
-                tex_width as GLint,
-                tex_height as GLint,
+                gl::RED as GLint,
+                glyphs_width as GLint,
+                glyphs_height as GLint,
                 0,
-                gl::RGBA,
-                gl::UNSIGNED_BYTE,
+                gl::RED,
+                gl::FLOAT,
                 buffer.as_ptr() as *const _
             );
-            gl.BindTexture(gl::TEXTURE_2D, 0);
 
             let program = create_program(gl, VS_SRC_TEXT, FS_SRC_TEXT);
 
             let uniform = gl.GetUniformLocation(program, b"tex\0".as_ptr() as *const _);
-            (program, uniform)
+            (program, uniform, id)
         };
 
 
         let twidth = glyphs_width as f32;
         let theight = glyphs_height as f32;
-        let width = 1.0;
-        let height = 1.0;
+        let height = 0.004 * scale;
+        let width = height * twidth / theight;
         let vertices = [
-            x, y, 0.0, 0.0, color[0], color[1], color[2], color[3],
-            x + width, y, twidth, 0.0, color[0], color[1], color[2], color[3],
-            x + width, y + height, twidth, theight, color[0], color[1], color[2], color[3],
-            x + width, y, twidth, 0.0, color[0], color[1], color[2], color[3],
-            x + width, y + height, twidth, theight, color[0], color[1], color[2], color[3],
-            x, y + height, 0.0, theight, color[0], color[1], color[2], color[3]
+            x, y, 0.0, 1.0, color[0], color[1], color[2], color[3],
+            x + width, y, 1.0, 1.0, color[0], color[1], color[2], color[3],
+            x + width, y + height, 1.0, 0.0, color[0], color[1], color[2], color[3],
+            x, y, 0.0, 1.0, color[0], color[1], color[2], color[3],
+            x + width, y + height, 1.0, 0.0, color[0], color[1], color[2], color[3],
+            x, y + height, 0.0, 0.0, color[0], color[1], color[2], color[3],
         ];
-        // let vertices = [
-        //     x, y, 0.0, 0.0, color[0], color[1], color[2], color[3],
-        //     x + glyphs_width as f32, y, glyphs_width as f32, 0.0, color[0], color[1], color[2], color[3],
-        //     x + glyphs_width as f32, y + glyphs_height as f32, glyphs_width as f32, glyphs_height as f32, color[0], color[1], color[2], color[3],
-        //     x + glyphs_width as f32, y, glyphs_width as f32, 0.0, color[0], color[1], color[2], color[3],
-        //     x + glyphs_width, y + glyphs_height, glyphs_width, glyphs_height, color[0], color[1], color[2], color[3],
-        //     x, y + glyphs_height, 0.0, glyphs_height, color[0], color[1], color[2], color[3]
-        // ];
 
         let (mut vao, mut vbo) = (0, 0);
         unsafe {
@@ -155,6 +149,11 @@ impl<'a> Font {
             );
             gl.BindVertexArray(vao);
             let stride = 8 * mem::size_of::<GLfloat>() as GLsizei;
+
+            gl.ActiveTexture(gl::TEXTURE0);
+            gl.BindTexture(gl::TEXTURE_2D, id);
+            gl.Uniform1i(uniform, 0);
+
             gl.EnableVertexAttribArray(0);
             gl.VertexAttribPointer(0, 2, gl::FLOAT, gl::FALSE, stride, ptr::null());
             gl.EnableVertexAttribArray(1);
@@ -163,10 +162,6 @@ impl<'a> Font {
             gl.VertexAttribPointer(2, 4, gl::FLOAT, gl::FALSE, stride, (4 * mem::size_of::<GLfloat>()) as *const _);
 
             gl.UseProgram(program);
-
-            gl.ActiveTexture(gl::TEXTURE0);
-            gl.BindTexture(gl::TEXTURE_2D, id);
-            gl.Uniform1i(uniform, 0);
 
             gl.DrawArrays(gl::TRIANGLES, 0, vertices.len() as GLsizei);
 
@@ -197,6 +192,7 @@ fn load_texture(gl: &gl::Gl, data: &[u8], width: i32, height: i32) -> GLuint {
     unsafe {
         gl.GenTextures(1, &mut id);
         gl.BindTexture(gl::TEXTURE_2D, id);
+
         gl.TexImage2D(
             gl::TEXTURE_2D,
             0,
@@ -270,6 +266,7 @@ fn create_program(
         gl.DeleteShader(fs);
         program
     }
+
 }
 
 pub fn init(

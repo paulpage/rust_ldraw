@@ -417,7 +417,7 @@ fn read_file(cache: &mut HashMap<CacheKey, Vec<Polygon>>, ldraw_directory: &str,
             }
         }
     }
-    cache.insert(CacheKey { name: filename.into(), inverted }, polygons.to_vec());
+    cache.insert(CacheKey { name: filename, inverted }, polygons.to_vec());
     polygons
 }
 

@@ -2,56 +2,11 @@ use glutin::event::{Event, WindowEvent, VirtualKeyCode, ElementState, MouseScrol
 use glutin::event_loop::{ControlFlow, EventLoop};
 use glutin::window::WindowBuilder;
 use glutin::{ContextBuilder, WindowedContext, PossiblyCurrent};
-use cgmath::{Matrix3, Matrix4, Rad, Deg, Vector3, Point3, SquareMatrix};
+use cgmath::{Matrix4, Rad, Vector3, Point3, SquareMatrix};
 use std::time::Instant;
-use std::collections::HashMap;
-use rusttype::gpu_cache::Cache;
-use rusttype::{point, vector, Font, PositionedGlyph, Rect, Scale};
 
 mod graphics;
 mod parser;
-
-fn layout_paragraph<'a>(
-    font: &Font<'a>,
-    scale: Scale,
-    width: u32,
-    text: &str,
-) -> Vec<PositionedGlyph<'a>> {
-    let mut result = Vec::new();
-    let v_metrics = font.v_metrics(scale);
-    let advance_height = v_metrics.ascent - v_metrics.descent + v_metrics.line_gap;
-    let mut caret = point(0.0, v_metrics.ascent);
-    let mut last_glyph_id = None;
-    for c in text.chars() {
-        if c.is_control() {
-            match c {
-                '\r' => {
-                    caret = point(0.0, caret.y + advance_height);
-                }
-                '\n' => {}
-                _ => {}
-            }
-            continue;
-        }
-        let base_glyph = font.glyph(c);
-        if let Some(id) = last_glyph_id.take() {
-            caret.x += font.pair_kerning(scale, id, base_glyph.id());
-        }
-        last_glyph_id = Some(base_glyph.id());
-        let mut glyph = base_glyph.scaled(scale).positioned(caret);
-        if let Some(bb) = glyph.pixel_bounding_box() {
-            if bb.max.x > width as i32 {
-                caret = point(0.0, caret.y + advance_height);
-                glyph.set_position(caret);
-                last_glyph_id = None;
-            }
-        }
-        caret.x += glyph.unpositioned().h_metrics().advance_width;
-        result.push(glyph);
-    }
-    result
-}
-
 
 const VS_SRC_2D: &'static [u8] = b"
 #version 330 core
@@ -77,7 +32,7 @@ void main() {
 }
 \0";
 
-const VS_SRC: &'static [u8] = b"
+const VS_SRC: &[u8] = b"
 #version 330 core
 
 layout (location = 0) in vec3 position;
@@ -103,7 +58,7 @@ void main() {
 }
 \0";
 
-const FS_SRC: &'static [u8] = b"
+const FS_SRC: &[u8] = b"
 #version 330 core
 
 in vec3 v_normal;
@@ -245,44 +200,16 @@ fn mat_to_array(m: Matrix4<f32>) -> [f32; 16] {
 
 fn main() {
 
-
-
     let event_loop = EventLoop::new();
     let window_builder = WindowBuilder::new().with_title("A fantastic window!");
-
     let windowed_context =
         ContextBuilder::new().with_vsync(true).build_windowed(window_builder, &event_loop).unwrap();
-
     let windowed_context = unsafe { windowed_context.make_current().unwrap() };
 
     let mut state = State::new();
 
-
-    // FONT ----------------------------------------
-
-    let text = "Hello, World! How are you today?";
-
-    let font_data = include_bytes!("../data/LiberationSans-Regular.ttf");
-    let font = Font::try_from_bytes(font_data as &[u8]).unwrap();
-
-    // TODO window scale factor
-    let scale = 1.0;
-    let (cache_width, cache_height) = ((512.0 * scale) as u32, (512.0 * scale) as u32);
-    let mut cache: Cache<'static> = Cache::builder()
-        .dimensions(cache_width, cache_height)
-        .build();
-
-    let cache_tex_data: Vec<u8> = Vec::with_capacity(cache_width as usize * cache_height as usize);
-
-    // ----------------------------------------
-
-
-    let mut x_min = f32::MAX;
-    let mut y_min = f32::MAX;
-    let mut z_min = f32::MAX;
-    let mut x_max = f32::MIN;
-    let mut y_max = f32::MIN;
-    let mut z_max = f32::MIN;
+    let (mut x_min, mut y_min, mut z_min) = (f32::MAX, f32::MAX, f32::MAX);
+    let (mut x_max, mut y_max, mut z_max) = (f32::MIN, f32::MIN, f32::MIN);
     let start = Instant::now();
     let polygons = parser::load("/home/paul/Downloads/ldraw/", "car.ldr");
     let middle = Instant::now();
@@ -341,15 +268,17 @@ fn main() {
         0.5, 0.5, 1.0, 0.0, 0.0, 1.0,
     ];
 
-    let gl: graphics::Graphics = graphics::init(
+    let size = windowed_context.window().inner_size();
+    let mut gl: graphics::Graphics = graphics::init(
         &windowed_context.context(),
+        size.width as i32,
+        size.height as i32,
         VS_SRC,
         FS_SRC,
         VS_SRC_2D,
         FS_SRC_2D,
         vertices,
-        vertices_2d,
-        vec![0, 0, 0, 0] // TODO pass in text texture I guess, this is just nonsense to make it compile
+        vertices_2d
     );
 
     let font = graphics::Font::from_ttf_data(include_bytes!("../data/LiberationSans-Regular.ttf"));
@@ -380,10 +309,11 @@ fn main() {
         let (world, view, proj) = get_transforms(&windowed_context, &state);
 
         match event {
-            Event::LoopDestroyed => return,
+            Event::LoopDestroyed => *control_flow = ControlFlow::Exit,
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::Resized(physical_size) => {
-                    windowed_context.resize(physical_size)
+                    windowed_context.resize(physical_size);
+                    gl.set_screen_size(physical_size.width as i32, physical_size.height as i32);
                 }
                 WindowEvent::CloseRequested => {
                     *control_flow = ControlFlow::Exit
@@ -400,7 +330,7 @@ fn main() {
                 }
                 WindowEvent::MouseWheel { delta, .. } => {
                     match delta {
-                        MouseScrollDelta::LineDelta(x, y) => {
+                        MouseScrollDelta::LineDelta(_x, y) => {
                             state.camera.distance *= (10.0 - y as f32) / 10.0;
                         }
                         MouseScrollDelta::PixelDelta(d) => {
@@ -438,7 +368,7 @@ fn main() {
                     1.0, 1.0, 1.0,
                 ];
                 gl.draw(mat_to_array(world), mat_to_array(view), mat_to_array(proj), view_position, light);
-                font.draw_text(&gl.gl, "Hello, World!", -0.5, 0.0, 32.0, [1.0, 0.0, 0.5, 1.0]);
+                font.draw_text(&gl.gl, gl.window_width, gl.window_height, "Hello", -0.5, 0.0, 256.0, [1.0, 0.0, 0.5, 1.0]);
                 windowed_context.swap_buffers().unwrap();
             },
             _ => (),

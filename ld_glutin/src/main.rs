@@ -438,7 +438,7 @@ fn main() {
                     1.0, 1.0, 1.0,
                 ];
                 gl.draw(mat_to_array(world), mat_to_array(view), mat_to_array(proj), view_position, light);
-                font.draw_text(&gl.gl, "H", -0.5, 0.0, 32.0, [1.0, 0.0, 0.5, 1.0]);
+                font.draw_text(&gl.gl, "Hello, World!", -0.5, 0.0, 32.0, [1.0, 0.0, 0.5, 1.0]);
                 windowed_context.swap_buffers().unwrap();
             },
             _ => (),

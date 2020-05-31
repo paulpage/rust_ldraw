@@ -81,11 +81,14 @@ impl<'a> Font {
                 let min_x = bounding_box.min.x as usize;
                 let min_y = bounding_box.min.y as usize;
 
+                println!("bbox: ({} to {}, {} to {})", bounding_box.min.x, bounding_box.max.x, bounding_box.min.y, bounding_box.max.y);
+                println!("dimensions: ({}, {})", glyphs_width, glyphs_height);
+
+                println!("max_x: {} (width: {})", bounding_box.max.x, glyphs_width);
                 glyph.draw(|x, y, v| {
                     let x = x as usize;
                     let y = y as usize;
-                    // let index = ((y + min_y) * tex_width + (x + min_x));
-                    let index = (y + min_y) * tex_width + (x + min_x);
+                    let index = (y + min_y) * tex_width + (x + min_x - 1);
                     buffer[index] = v;
                 });
             }

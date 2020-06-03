@@ -137,6 +137,11 @@ impl Camera {
     }
 }
 
+struct Model {
+    vertices: Vec<f32>,
+    transform: Matrix4<f32>,
+}
+
 struct State {
     fovy: f32,
     near: f32,
@@ -171,7 +176,8 @@ impl State {
 
 fn get_transforms(
     windowed_context: &WindowedContext<PossiblyCurrent>,
-    state: &State
+    state: &State,
+    model: &Model,
 ) -> (Matrix4<f32>, Matrix4<f32>, Matrix4<f32>) {
     let aspect = {
         let size = windowed_context.window().inner_size();
@@ -184,7 +190,7 @@ fn get_transforms(
         );
 
     let proj = cgmath::perspective(Rad(state.fovy), aspect, state.near, state.far);
-    let world = Matrix4::identity();
+    let world = model.transform;
     (world, view, proj)
 }
 
@@ -198,21 +204,8 @@ fn mat_to_array(m: Matrix4<f32>) -> [f32; 16] {
     ]
 }
 
-fn main() {
-
-    let event_loop = EventLoop::new();
-    let window_builder = WindowBuilder::new().with_title("A fantastic window!");
-    let windowed_context =
-        ContextBuilder::new().with_vsync(true).build_windowed(window_builder, &event_loop).unwrap();
-    let windowed_context = unsafe { windowed_context.make_current().unwrap() };
-
-    let mut state = State::new();
-
-    let (mut x_min, mut y_min, mut z_min) = (f32::MAX, f32::MAX, f32::MAX);
-    let (mut x_max, mut y_max, mut z_max) = (f32::MIN, f32::MIN, f32::MIN);
-    let start = Instant::now();
-    let polygons = parser::load("/home/paul/Downloads/ldraw/", "car.ldr");
-    let middle = Instant::now();
+fn load_ldraw_file(ldraw_dir: &str, filename: &str) -> Model {
+    let polygons = parser::load(ldraw_dir, filename);
     let mut vertices = Vec::new();
     for polygon in &polygons {
         let color = match polygon.color {
@@ -222,25 +215,6 @@ fn main() {
         if polygon.points.len() == 3 {
             let n = parser::norm(polygon);
             for point in &polygon.points {
-
-                if point.x < x_min {
-                    x_min = point.x;
-                }
-                if point.x > x_max {
-                    x_max = point.x;
-                }
-                if point.y < y_min {
-                    y_min = point.y;
-                }
-                if point.y > y_max {
-                    y_max = point.y;
-                }
-                if point.z < z_min {
-                    z_min = point.z;
-                }
-                if point.z > z_max {
-                    z_max = point.z;
-                }
 
                 vertices.push(point.x / 40.0);
                 vertices.push(point.y / -40.0);
@@ -256,10 +230,30 @@ fn main() {
             }
         }
     }
+
+    Model {
+        vertices,
+        transform: Matrix4::identity(),
+    }
+}
+
+fn main() {
+
+    let event_loop = EventLoop::new();
+    let window_builder = WindowBuilder::new().with_title("A fantastic window!");
+    let windowed_context =
+        ContextBuilder::new().with_vsync(true).build_windowed(window_builder, &event_loop).unwrap();
+    let windowed_context = unsafe { windowed_context.make_current().unwrap() };
+
+    let mut state = State::new();
+    let mut models = Vec::new();
+
+    let start = Instant::now();
+    models.push(load_ldraw_file("/home/paul/Downloads/ldraw", "car.ldr"));
+
     println!(
-        "Total load time: {} ms (bake time: {} ms)",
+        "load time: {} ms",
         start.elapsed().as_millis(),
-        middle.elapsed().as_millis()
     );
 
     let vertices_2d = vec![
@@ -277,7 +271,7 @@ fn main() {
         FS_SRC,
         VS_SRC_2D,
         FS_SRC_2D,
-        vertices,
+        // vertices,
         vertices_2d
     );
 
@@ -306,7 +300,6 @@ fn main() {
                 state.camera.rot_vertical = std::f32::consts::PI - 0.001;
             }
         }
-        let (world, view, proj) = get_transforms(&windowed_context, &state);
 
         match event {
             Event::LoopDestroyed => *control_flow = ControlFlow::Exit,
@@ -325,6 +318,11 @@ fn main() {
                         Some(VirtualKeyCode::D) => state.right_pressed = pressed,
                         Some(VirtualKeyCode::W) => state.up_pressed = pressed,
                         Some(VirtualKeyCode::S) => state.down_pressed = pressed,
+                        Some(VirtualKeyCode::T) => {
+                            let mut model = load_ldraw_file("/home/paul/Downloads/ldraw", "3001.dat");
+                            model.transform = Matrix4::from_translation(Vector3::new(2.0, 2.0, 2.0));
+                            models.push(model);
+                        }
                         _ => {}
                     }
                 }
@@ -367,8 +365,13 @@ fn main() {
                     0.8, 0.8, 0.8,
                     1.0, 1.0, 1.0,
                 ];
-                gl.draw(mat_to_array(world), mat_to_array(view), mat_to_array(proj), view_position, light);
+                gl.clear([0.0, 1.0, 1.0, 1.0]);
+                for model in &models {
+                    let (world, view, proj) = get_transforms(&windowed_context, &state, &model);
+                    gl.draw_model(&model.vertices, mat_to_array(world), mat_to_array(view), mat_to_array(proj), view_position, light);
+                }
                 font.draw_text(&gl.gl, gl.window_width, gl.window_height, "Hello", -0.5, 0.0, 256.0, [1.0, 0.0, 0.5, 1.0]);
+                gl.draw_2d();
                 windowed_context.swap_buffers().unwrap();
             },
             _ => (),

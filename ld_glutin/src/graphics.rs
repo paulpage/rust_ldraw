@@ -165,9 +165,7 @@ pub struct Graphics {
     pub window_height: i32,
     program: u32,
     program_2d: u32,
-    vao: u32,
     vao_2d: u32,
-    vertices: Vec<f32>,
     vertices_2d: Vec<f32>,
     pub gl: gl::Gl,
 }
@@ -240,7 +238,6 @@ pub fn init(
     fragment_shader: &'static [u8],
     vertex_shader_2d: &'static [u8],
     fragment_shader_2d: &'static [u8],
-    vertices: Vec<f32>,
     vertices_2d: Vec<f32>,
 ) -> Graphics {
 
@@ -258,28 +255,8 @@ pub fn init(
 
     let program = create_program(&gl, vertex_shader, fragment_shader);
     let program_2d = create_program(&gl, vertex_shader_2d, fragment_shader_2d);
-    let (mut vao, mut vbo, mut vao_2d, mut vbo_2d, mut vao_text, mut vbo_text) = (0, 0, 0, 0, 0, 0);
+    let (mut vao_2d, mut vbo_2d, mut vao_text, mut vbo_text) = (0, 0, 0, 0);
     unsafe {
-        gl.GenVertexArrays(1, &mut vao);
-        gl.GenBuffers(1, &mut vbo);
-        gl.BindBuffer(gl::ARRAY_BUFFER, vbo);
-        gl.BufferData(
-            gl::ARRAY_BUFFER,
-            (vertices.len() * mem::size_of::<GLfloat>()) as GLsizeiptr,
-            vertices.as_ptr() as *const _,
-            gl::STATIC_DRAW
-        );
-        gl.BindVertexArray(vao);
-        let stride = 10 * mem::size_of::<GLfloat>() as GLsizei;
-        gl.EnableVertexAttribArray(0);
-        gl.VertexAttribPointer(0, 3, gl::FLOAT, gl::FALSE, stride, ptr::null());
-        gl.EnableVertexAttribArray(1);
-        gl.VertexAttribPointer(1, 3, gl::FLOAT, gl::FALSE, stride, (3 * mem::size_of::<GLfloat>()) as *const _);
-        gl.EnableVertexAttribArray(2);
-        gl.VertexAttribPointer(2, 4, gl::FLOAT, gl::FALSE, stride, (6 * mem::size_of::<GLfloat>()) as *const _);
-        gl.BindBuffer(gl::ARRAY_BUFFER, 0);
-        gl.BindVertexArray(0);
-
         gl.GenVertexArrays(1, &mut vao_2d);
         gl.GenBuffers(1, &mut vbo_2d);
         gl.BindBuffer(gl::ARRAY_BUFFER, vbo_2d);
@@ -306,9 +283,8 @@ pub fn init(
             window_width,
             program,
             program_2d,
-            vao,
             vao_2d,
-            vertices,
+            // vertices,
             vertices_2d,
             gl,
         }
@@ -316,12 +292,57 @@ pub fn init(
 }
 
 impl Graphics {
-    pub fn draw(&self, world: [f32; 16], view: [f32; 16], proj: [f32; 16], view_position: [f32; 3], light: [f32; 15]) {
-        unsafe {
-            self.gl.ClearColor(0.0, 1.0, 0.0, 1.0);
-            self.gl.Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
 
-            // 3d
+    pub fn clear(&self, color: [f32; 4]) {
+        unsafe {
+            self.gl.ClearColor(color[0], color[1], color[2], color[3]);
+            self.gl.Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
+        }
+    }
+
+    // TODO remove this function, figure out what we want to do with drawing 2d
+    pub fn draw_2d(&self) {
+        unsafe {
+            // 2d
+            self.gl.UseProgram(self.program_2d);
+            self.gl.BindVertexArray(self.vao_2d);
+            self.gl.DrawArrays(gl::TRIANGLES, 0, self.vertices_2d.len() as GLsizei);
+            self.gl.BindVertexArray(0);
+        }
+    }
+
+    pub fn set_screen_size(&mut self, x: i32, y: i32) {
+        unsafe {
+            self.gl.Viewport(0, 0, x, y);
+        }
+        self.window_width = x;
+        self.window_height = y;
+    }
+
+    pub fn draw_model(&self, vertices: &[f32], world: [f32; 16], view: [f32; 16], proj: [f32; 16], view_position: [f32; 3], light: [f32; 15]) {
+        let gl = &self.gl;
+        let (mut vao, mut vbo) = (0, 0);
+        unsafe {
+            gl.GenVertexArrays(1, &mut vao);
+            gl.GenBuffers(1, &mut vbo);
+            gl.BindBuffer(gl::ARRAY_BUFFER, vbo);
+            gl.BufferData(
+                gl::ARRAY_BUFFER,
+                (vertices.len() * mem::size_of::<GLfloat>()) as GLsizeiptr,
+                vertices.as_ptr() as *const _,
+                gl::STATIC_DRAW
+            );
+            gl.BindVertexArray(vao);
+            let stride = 10 * mem::size_of::<GLfloat>() as GLsizei;
+            gl.EnableVertexAttribArray(0);
+            gl.VertexAttribPointer(0, 3, gl::FLOAT, gl::FALSE, stride, ptr::null());
+            gl.EnableVertexAttribArray(1);
+            gl.VertexAttribPointer(1, 3, gl::FLOAT, gl::FALSE, stride, (3 * mem::size_of::<GLfloat>()) as *const _);
+            gl.EnableVertexAttribArray(2);
+            gl.VertexAttribPointer(2, 4, gl::FLOAT, gl::FALSE, stride, (6 * mem::size_of::<GLfloat>()) as *const _);
+            gl.BindBuffer(gl::ARRAY_BUFFER, 0);
+            gl.BindVertexArray(0);
+
             self.gl.Enable(gl::DEPTH_TEST);
             self.gl.UseProgram(self.program);
             self.gl.UniformMatrix4fv(
@@ -380,24 +401,10 @@ impl Graphics {
                 light[14],
             );
 
-            self.gl.BindVertexArray(self.vao);
-            self.gl.DrawArrays(gl::TRIANGLES, 0, self.vertices.len() as GLsizei);
+            self.gl.BindVertexArray(vao);
+            self.gl.DrawArrays(gl::TRIANGLES, 0, vertices.len() as GLsizei);
             self.gl.BindVertexArray(0);
             self.gl.Disable(gl::DEPTH_TEST);
-
-            // 2d
-            self.gl.UseProgram(self.program_2d);
-            self.gl.BindVertexArray(self.vao_2d);
-            self.gl.DrawArrays(gl::TRIANGLES, 0, self.vertices_2d.len() as GLsizei);
-            self.gl.BindVertexArray(0);
         }
-    }
-
-    pub fn set_screen_size(&mut self, x: i32, y: i32) {
-        unsafe {
-            self.gl.Viewport(0, 0, x, y);
-        }
-        self.window_width = x;
-        self.window_height = y;
     }
 }

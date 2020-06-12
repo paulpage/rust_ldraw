@@ -1,110 +1,27 @@
 use glutin::event::{Event, WindowEvent, VirtualKeyCode, ElementState, MouseScrollDelta, MouseButton};
 use glutin::event_loop::{ControlFlow, EventLoop};
 use glutin::window::WindowBuilder;
-use glutin::{ContextBuilder, WindowedContext, PossiblyCurrent};
-use cgmath::{Matrix4, Rad, Vector3, Point3, SquareMatrix};
+use glutin::ContextBuilder;
+use cgmath::{Matrix4, Rad, Vector2, Deg, Vector3, Point3, SquareMatrix, Vector4};
 use std::time::Instant;
 
 mod graphics;
 mod parser;
 
-const VS_SRC_2D: &'static [u8] = b"
-#version 330 core
-
-layout (location = 0) in vec2 position;
-layout (location = 1) in vec4 color;
-
-out vec4 v_color;
-
-void main() {
-    v_color = color;
-    gl_Position = vec4(position, 0.0, 1.0);
+fn fmin(a: f32, b: f32) -> f32 {
+    if b < a { b } else { a }
 }
-\0";
 
-const FS_SRC_2D: &'static [u8] = b"
-#version 330 core
-
-in vec4 v_color;
-
-void main() {
-    gl_FragColor = v_color;
+fn fmax(a: f32, b: f32) -> f32 {
+    if b > a { b } else { a }
 }
-\0";
-
-const VS_SRC: &[u8] = b"
-#version 330 core
-
-layout (location = 0) in vec3 position;
-layout (location = 1) in vec3 normal;
-layout (location = 2) in vec4 color;
-
-uniform mat4 world;
-uniform mat4 view;
-uniform mat4 proj;
-
-out vec3 v_normal;
-out vec4 v_color;
-out vec3 fragment_position;
-
-void main() {
-    mat4 worldview = view * world;
-    v_normal = transpose(inverse(mat3(worldview))) * normal;
-    v_color = color;
-    // TODO check if world is correct to use below, original said model
-    fragment_position = vec3(world * vec4(position, 1.0));
-    // fragment_position = position;
-    gl_Position = proj * worldview * vec4(position, 1.0);
-}
-\0";
-
-const FS_SRC: &[u8] = b"
-#version 330 core
-
-in vec3 v_normal;
-in vec4 v_color;
-in vec3 fragment_position;
-
-struct Light {
-    vec3 position;
-    vec3 direction;
-
-    vec3 ambient;
-    vec3 diffuse;
-    vec3 specular;
-};
-
-uniform vec3 view_position;
-uniform Light light;
-
-// const vec3 LIGHT = vec3(1.0, 1.0, 1.0);
-
-void main() {
-
-    vec3 norm = normalize(v_normal);
-    vec3 light_direction = normalize(light.position - fragment_position);
-    vec3 view_direction = normalize(view_position - fragment_position);
-    vec3 reflection_direction = reflect(-light_direction, norm);
-
-    vec3 ambient = light.ambient; 
-    vec3 diffuse = light.diffuse * max(dot(norm, light_direction), 0.0);
-    vec3 specular = light.specular * pow(max(dot(view_direction, reflection_direction), 0.0), 32);
-
-    gl_FragColor = vec4((ambient + diffuse + specular), 1.0) * v_color;
-
-    // float brightness = dot(normalize(v_normal), normalize(LIGHT));
-    // vec3 dark_color = v_color.xyz * 0.2;
-    // vec3 regular_color = v_color.xyz;
-
-    // gl_FragColor = vec4(mix(dark_color, regular_color, brightness), v_color.w);
-}
-\0";
 
 struct Camera {
     focus: Point3<f32>,
     distance: f32,
     rot_horizontal: f32,
     rot_vertical: f32,
+    fovy: f32,
 }
 
 impl Camera {
@@ -114,6 +31,7 @@ impl Camera {
             distance: 10.0,
             rot_horizontal: 0.5,
             rot_vertical: 0.5,
+            fovy: 90.0,
         }
     }
 
@@ -139,14 +57,20 @@ impl Camera {
 
 struct Model {
     vertices: Vec<f32>,
-    transform: Matrix4<f32>,
+    position: Vector3<f32>,
+    rotation: Vector3<f32>,
+    bounding_box: BoundingBox,
+}
+
+struct BoundingBox {
+    min: Point3<f32>,
+    max: Point3<f32>,
 }
 
 struct State {
     fovy: f32,
-    near: f32,
-    far: f32,
     camera: Camera,
+    aspect_ratio: f32,
     up_pressed: bool,
     down_pressed: bool,
     left_pressed: bool,
@@ -154,14 +78,14 @@ struct State {
     mouse_x: f32,
     mouse_y: f32,
     middle_pressed: bool,
+    active_model_idx: usize,
 }
 
 impl State {
     fn new() -> Self {
         Self {
-            fovy: std::f32::consts::FRAC_PI_2 * 0.5,
-            near: 0.01,
-            far: 100.0,
+            aspect_ratio: 1.0,
+            fovy: 90.0,
             camera: Camera::new(),
             up_pressed: false,
             down_pressed: false,
@@ -170,27 +94,37 @@ impl State {
             mouse_x: 0.0,
             mouse_y: 0.0,
             middle_pressed: false,
+            active_model_idx: 0,
         }
     }
 }
 
-fn get_transforms(
-    windowed_context: &WindowedContext<PossiblyCurrent>,
-    state: &State,
-    model: &Model,
-) -> (Matrix4<f32>, Matrix4<f32>, Matrix4<f32>) {
-    let aspect = {
-        let size = windowed_context.window().inner_size();
-        size.width as f32 / size.height as f32
-    };
+fn unproject(source: Vector3<f32>, view: Matrix4<f32>, proj: Matrix4<f32>) -> Vector3<f32> {
+    let view_proj = (proj * view).invert().unwrap();
+    let q = view_proj * Vector4::new(source.x, source.y, source.z, 1.0);
+    Vector3::new(q.x / q.w, q.y / q.w, q.z / q.w)
+}
+
+fn get_mouse_ray(state: &State, mouse_position: Vector2<f32>, camera: &Camera) -> (Point3<f32>, Vector3<f32>) {
+    let view = Matrix4::look_at(camera.position(), camera.focus, Vector3::new(0.0, 1.0, 0.0));
+    let proj = cgmath::perspective(Deg(camera.fovy), state.aspect_ratio, 0.01, 100.0);
+    let near = unproject(Vector3::new(mouse_position.x, mouse_position.y, 0.0), view, proj);
+    let far = unproject(Vector3::new(mouse_position.x, mouse_position.y, 1.0), view, proj);
+    let direction = far - near;
+    (camera.position(), direction)
+}
+
+fn get_transforms(state: &State, model: &Model) -> (Matrix4<f32>, Matrix4<f32>, Matrix4<f32>) {
     let view = Matrix4::look_at(
         state.camera.position(),
         state.camera.focus,
-        Vector3::new(0.0, 1.0, 0.0),
-        );
-
-    let proj = cgmath::perspective(Rad(state.fovy), aspect, state.near, state.far);
-    let world = model.transform;
+        Vector3::new(0.0, 1.0, 0.0)
+    );
+    let proj = cgmath::perspective(Deg(state.camera.fovy), state.aspect_ratio, 0.01, 100.0);
+    let world = Matrix4::from_translation(model.position)
+        * Matrix4::from_angle_x(Rad(model.rotation.x))
+        * Matrix4::from_angle_y(Rad(model.rotation.y))
+        * Matrix4::from_angle_z(Rad(model.rotation.z));
     (world, view, proj)
 }
 
@@ -204,14 +138,22 @@ fn mat_to_array(m: Matrix4<f32>) -> [f32; 16] {
     ]
 }
 
-fn load_ldraw_file(ldraw_dir: &str, filename: &str) -> Model {
+fn load_ldraw_file(ldraw_dir: &str, filename: &str, custom_color: Option<[f32; 4]>) -> Model {
     let polygons = parser::load(ldraw_dir, filename);
     let mut vertices = Vec::new();
+    let mut bounding_box = BoundingBox {
+        min: Point3::new(f32::MAX, f32::MAX, f32::MAX),
+        max: Point3::new(f32::MIN, f32::MIN, f32::MIN),
+    };
     for polygon in &polygons {
-        let color = match polygon.color {
+        let mut color = match polygon.color {
             parser::LdrawColor::RGBA(r, g, b, a) => [r, g, b, a],
             _ => [0.0, 1.0, 0.0, 1.0],
         };
+        if let Some(c) = custom_color {
+            color = c;
+        }
+
         if polygon.points.len() == 3 {
             let n = parser::norm(polygon);
             for point in &polygon.points {
@@ -227,29 +169,40 @@ fn load_ldraw_file(ldraw_dir: &str, filename: &str) -> Model {
                 vertices.push(color[1]);
                 vertices.push(color[2]);
                 vertices.push(color[3]);
+
+                bounding_box.min.x = fmin(bounding_box.min.x, point.x / 40.0);
+                bounding_box.min.y = fmin(bounding_box.min.y, point.y / -40.0);
+                bounding_box.min.z = fmin(bounding_box.min.z, point.z / 40.0);
+                bounding_box.max.x = fmax(bounding_box.max.x, point.x / 40.0);
+                bounding_box.max.y = fmax(bounding_box.max.y, point.y / -40.0);
+                bounding_box.max.z = fmax(bounding_box.max.z, point.z / 40.0);
             }
         }
     }
 
     Model {
         vertices,
-        transform: Matrix4::identity(),
+        position: Vector3::new(0.0, 0.0, 0.0),
+        rotation: Vector3::new(0.0, 0.0, 0.0),
+        bounding_box,
     }
 }
 
 fn main() {
 
+    let ldraw_dir = "/home/paul/Downloads/ldraw";
     let event_loop = EventLoop::new();
     let window_builder = WindowBuilder::new().with_title("A fantastic window!");
     let windowed_context =
         ContextBuilder::new().with_vsync(true).build_windowed(window_builder, &event_loop).unwrap();
     let windowed_context = unsafe { windowed_context.make_current().unwrap() };
 
+    let baseplate = load_ldraw_file(ldraw_dir, "3811.dat", None);
     let mut state = State::new();
     let mut models = Vec::new();
 
     let start = Instant::now();
-    models.push(load_ldraw_file("/home/paul/Downloads/ldraw", "car.ldr"));
+    models.push(load_ldraw_file(ldraw_dir, "car.ldr", None));
 
     println!(
         "load time: {} ms",
@@ -267,11 +220,6 @@ fn main() {
         &windowed_context.context(),
         size.width as i32,
         size.height as i32,
-        VS_SRC,
-        FS_SRC,
-        VS_SRC_2D,
-        FS_SRC_2D,
-        // vertices,
         vertices_2d
     );
 
@@ -307,6 +255,10 @@ fn main() {
                 WindowEvent::Resized(physical_size) => {
                     windowed_context.resize(physical_size);
                     gl.set_screen_size(physical_size.width as i32, physical_size.height as i32);
+                    state.aspect_ratio = {
+                        let size = windowed_context.window().inner_size();
+                        size.width as f32 / size.height as f32
+                    };
                 }
                 WindowEvent::CloseRequested => {
                     *control_flow = ControlFlow::Exit
@@ -319,8 +271,8 @@ fn main() {
                         Some(VirtualKeyCode::W) => state.up_pressed = pressed,
                         Some(VirtualKeyCode::S) => state.down_pressed = pressed,
                         Some(VirtualKeyCode::T) => {
-                            let mut model = load_ldraw_file("/home/paul/Downloads/ldraw", "3001.dat");
-                            model.transform = Matrix4::from_translation(Vector3::new(2.0, 2.0, 2.0));
+                            let mut model = load_ldraw_file(ldraw_dir, "3001.dat", None);
+                            model.position = Vector3::new(2.0, 2.0, 2.0);
                             models.push(model);
                         }
                         _ => {}
@@ -366,12 +318,14 @@ fn main() {
                     1.0, 1.0, 1.0,
                 ];
                 gl.clear([0.0, 1.0, 1.0, 1.0]);
+                let (world, view, proj) = get_transforms(&state, &baseplate);
+                gl.draw_model(&baseplate.vertices, mat_to_array(world), mat_to_array(view), mat_to_array(proj), view_position, light);
                 for model in &models {
-                    let (world, view, proj) = get_transforms(&windowed_context, &state, &model);
+                    let (world, view, proj) = get_transforms(&state, &model);
                     gl.draw_model(&model.vertices, mat_to_array(world), mat_to_array(view), mat_to_array(proj), view_position, light);
                 }
-                font.draw_text(&gl.gl, gl.window_width, gl.window_height, "Hello", -0.5, 0.0, 256.0, [1.0, 0.0, 0.5, 1.0]);
-                gl.draw_2d();
+                // font.draw_text(&gl.gl, gl.window_width, gl.window_height, "Hello", -0.5, 0.0, 256.0, [1.0, 0.0, 0.5, 1.0]);
+                // gl.draw_2d();
                 windowed_context.swap_buffers().unwrap();
             },
             _ => (),

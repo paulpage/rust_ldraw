@@ -4,6 +4,98 @@ use glutin::{self, PossiblyCurrent};
 use self::gl::types::*;
 use rusttype::{point, Scale};
 
+const VS_SRC_2D: &'static [u8] = b"
+#version 330 core
+
+layout (location = 0) in vec2 position;
+layout (location = 1) in vec4 color;
+
+out vec4 v_color;
+
+void main() {
+    v_color = color;
+    gl_Position = vec4(position, 0.0, 1.0);
+}
+\0";
+
+const FS_SRC_2D: &'static [u8] = b"
+#version 330 core
+
+in vec4 v_color;
+
+void main() {
+    gl_FragColor = v_color;
+}
+\0";
+
+const VS_SRC: &[u8] = b"
+#version 330 core
+
+layout (location = 0) in vec3 position;
+layout (location = 1) in vec3 normal;
+layout (location = 2) in vec4 color;
+
+uniform mat4 world;
+uniform mat4 view;
+uniform mat4 proj;
+
+out vec3 v_normal;
+out vec4 v_color;
+out vec3 fragment_position;
+
+void main() {
+    mat4 worldview = view * world;
+    v_normal = transpose(inverse(mat3(worldview))) * normal;
+    v_color = color;
+    // TODO check if world is correct to use below, original said model
+    fragment_position = vec3(world * vec4(position, 1.0));
+    // fragment_position = position;
+    gl_Position = proj * worldview * vec4(position, 1.0);
+}
+\0";
+
+const FS_SRC: &[u8] = b"
+#version 330 core
+
+in vec3 v_normal;
+in vec4 v_color;
+in vec3 fragment_position;
+
+struct Light {
+    vec3 position;
+    vec3 direction;
+
+    vec3 ambient;
+    vec3 diffuse;
+    vec3 specular;
+};
+
+uniform vec3 view_position;
+uniform Light light;
+
+// const vec3 LIGHT = vec3(1.0, 1.0, 1.0);
+
+void main() {
+
+    vec3 norm = normalize(v_normal);
+    vec3 light_direction = normalize(light.position - fragment_position);
+    vec3 view_direction = normalize(view_position - fragment_position);
+    vec3 reflection_direction = reflect(-light_direction, norm);
+
+    vec3 ambient = light.ambient; 
+    vec3 diffuse = light.diffuse * max(dot(norm, light_direction), 0.0);
+    vec3 specular = light.specular * pow(max(dot(view_direction, reflection_direction), 0.0), 32);
+
+    gl_FragColor = vec4((ambient + diffuse + specular), 1.0) * v_color;
+
+    // float brightness = dot(normalize(v_normal), normalize(LIGHT));
+    // vec3 dark_color = v_color.xyz * 0.2;
+    // vec3 regular_color = v_color.xyz;
+
+    // gl_FragColor = vec4(mix(dark_color, regular_color, brightness), v_color.w);
+}
+\0";
+
 const VS_SRC_TEXT: &[u8] = b"
 #version 330 core
 
@@ -234,10 +326,6 @@ pub fn init(
     gl_context: &glutin::Context<PossiblyCurrent>,
     window_width: i32,
     window_height: i32,
-    vertex_shader: &'static [u8],
-    fragment_shader: &'static [u8],
-    vertex_shader_2d: &'static [u8],
-    fragment_shader_2d: &'static [u8],
     vertices_2d: Vec<f32>,
 ) -> Graphics {
 
@@ -246,15 +334,15 @@ pub fn init(
     unsafe {
         gl.Enable(gl::DEPTH_TEST);
         gl.DepthFunc(gl::LESS);
-        // gl.Disable(gl::CULL_FACE);
+        gl.Disable(gl::CULL_FACE);
         gl.Enable(gl::BLEND);
         gl.BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
 
         gl.Viewport(0, 0, window_width, window_height);
     }
 
-    let program = create_program(&gl, vertex_shader, fragment_shader);
-    let program_2d = create_program(&gl, vertex_shader_2d, fragment_shader_2d);
+    let program = create_program(&gl, VS_SRC, FS_SRC);
+    let program_2d = create_program(&gl, VS_SRC_2D, FS_SRC_2D);
     let (mut vao_2d, mut vbo_2d, mut vao_text, mut vbo_text) = (0, 0, 0, 0);
     unsafe {
         gl.GenVertexArrays(1, &mut vao_2d);
@@ -317,6 +405,49 @@ impl Graphics {
         }
         self.window_width = x;
         self.window_height = y;
+    }
+
+    pub fn draw_bounding_box(&self, a: [f32; 3], b: [f32; 3], world: [f32; 16], view: [f32; 16], proj: [f32; 16], view_position: [f32; 3], light: [f32; 15]) {
+        let c = vec![0.0, 1.0, 1.0, 0.3];
+        let mut vertices = vec![
+            a[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            a[0], a[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            a[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            a[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            a[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            a[0], b[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            a[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            a[0], a[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            b[0], a[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            a[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            b[0], a[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            b[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            b[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            b[0], a[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            b[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            b[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            b[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            b[0], b[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            a[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            a[0], b[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            b[0], b[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            a[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            b[0], b[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            b[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            a[0], b[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            a[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            b[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            a[0], b[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            b[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            b[0], b[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            a[0], a[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            a[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            b[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            a[0], a[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            b[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+            b[0], a[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3]
+        ];
+        self.draw_model(&vertices, world, view, proj, view_position, light);
     }
 
     pub fn draw_model(&self, vertices: &[f32], world: [f32; 16], view: [f32; 16], proj: [f32; 16], view_position: [f32; 3], light: [f32; 15]) {
@@ -405,6 +536,8 @@ impl Graphics {
             self.gl.DrawArrays(gl::TRIANGLES, 0, vertices.len() as GLsizei);
             self.gl.BindVertexArray(0);
             self.gl.Disable(gl::DEPTH_TEST);
+            self.gl.DeleteVertexArrays(1, &mut vao);
+            self.gl.DeleteBuffers(1, &mut vbo);
         }
     }
 }

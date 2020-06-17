@@ -2,7 +2,7 @@ use glutin::event::{Event, WindowEvent, VirtualKeyCode, ElementState, MouseScrol
 use glutin::event_loop::{ControlFlow, EventLoop};
 use glutin::window::WindowBuilder;
 use glutin::ContextBuilder;
-use cgmath::{Matrix4, Rad, Vector2, Deg, Vector3, Point3, SquareMatrix, Vector4};
+use cgmath::{Matrix4, Vector2, Deg, Vector3, Point3, SquareMatrix, Vector4};
 use std::time::Instant;
 
 mod graphics;
@@ -14,6 +14,10 @@ fn fmin(a: f32, b: f32) -> f32 {
 
 fn fmax(a: f32, b: f32) -> f32 {
     if b > a { b } else { a }
+}
+
+fn lerp(a: f32, b: f32, by: f32) -> f32 {
+    a + (b - a) * by
 }
 
 struct Camera {
@@ -58,7 +62,9 @@ impl Camera {
 struct Model {
     vertices: Vec<f32>,
     position: Vector3<f32>,
-    rotation: Vector3<f32>,
+    rotation: Vector3<i32>,
+    animation_position_offset: Vector3<f32>,
+    animation_rotation_offset: Vector3<f32>,
     bounding_box: BoundingBox,
 }
 
@@ -121,10 +127,10 @@ fn get_transforms(state: &State, model: &Model) -> (Matrix4<f32>, Matrix4<f32>, 
         Vector3::new(0.0, 1.0, 0.0)
     );
     let proj = cgmath::perspective(Deg(state.camera.fovy), state.aspect_ratio, 0.01, 100.0);
-    let world = Matrix4::from_translation(model.position)
-        * Matrix4::from_angle_x(Rad(model.rotation.x))
-        * Matrix4::from_angle_y(Rad(model.rotation.y))
-        * Matrix4::from_angle_z(Rad(model.rotation.z));
+    let world = Matrix4::from_translation(model.position - model.animation_position_offset)
+        * Matrix4::from_angle_x(Deg((model.rotation.x * 90) as f32 - model.animation_rotation_offset.x))
+        * Matrix4::from_angle_y(Deg((model.rotation.y * 90) as f32 - model.animation_rotation_offset.y))
+        * Matrix4::from_angle_z(Deg((model.rotation.z * 90) as f32 - model.animation_rotation_offset.z));
     (world, view, proj)
 }
 
@@ -183,7 +189,9 @@ fn load_ldraw_file(ldraw_dir: &str, filename: &str, custom_color: Option<[f32; 4
     Model {
         vertices,
         position: Vector3::new(0.0, 0.0, 0.0),
-        rotation: Vector3::new(0.0, 0.0, 0.0),
+        rotation: Vector3::new(0, 0, 0),
+        animation_position_offset: Vector3::new(0.0, 0.0, 0.0),
+        animation_rotation_offset: Vector3::new(0.0, 0.0, 0.0),
         bounding_box,
     }
 }
@@ -226,7 +234,8 @@ fn main() {
     let font = graphics::Font::from_ttf_data(include_bytes!("../data/LiberationSans-Regular.ttf"));
 
     event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Wait;
+        // *control_flow = ControlFlow::Wait;
+        *control_flow = ControlFlow::Poll;
 
         windowed_context.window().request_redraw();
 
@@ -275,6 +284,12 @@ fn main() {
                             model.position = Vector3::new(2.0, 2.0, 2.0);
                             models.push(model);
                         }
+                        Some(VirtualKeyCode::R) => {
+                            if pressed {
+                                models[state.active_model_idx].rotation.y += 1;
+                                models[state.active_model_idx].animation_rotation_offset.y = 90.0;
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -320,9 +335,27 @@ fn main() {
                 gl.clear([0.0, 1.0, 1.0, 1.0]);
                 let (world, view, proj) = get_transforms(&state, &baseplate);
                 gl.draw_model(&baseplate.vertices, mat_to_array(world), mat_to_array(view), mat_to_array(proj), view_position, light);
-                for model in &models {
+                for model in &mut models {
                     let (world, view, proj) = get_transforms(&state, &model);
                     gl.draw_model(&model.vertices, mat_to_array(world), mat_to_array(view), mat_to_array(proj), view_position, light);
+
+                    if model.animation_rotation_offset.y.abs() > std::f32::EPSILON {
+                        let direction = model.animation_rotation_offset.y / model.animation_rotation_offset.y.abs();
+                        model.animation_rotation_offset.y -= 15.0 * direction;
+                        if model.animation_rotation_offset.y < 15.0 {
+                            model.animation_rotation_offset.y = 0.0;
+                        }
+                    }
+                    let delta = model.animation_rotation_offset.y - model.rotation.y as f32;
+                    // if delta.abs() > std::f32::EPSILON {
+                    //     let direction = delta / delta.abs();
+                    //     model.animation_position
+                    //     model.animation_rotation.y = lerp(model.rotation.y as f32 - 90.0 * direction, model.rotation.y as f32, model.animation_index as f32 / model.animation_frames as f32);
+                    //     model.animation_index += 1;
+                    // } else {
+                    //     model.animation_index = 0;
+                    //     model.animation_rotation.y = model.rotation.y as f32;
+                    // }
                 }
                 // font.draw_text(&gl.gl, gl.window_width, gl.window_height, "Hello", -0.5, 0.0, 256.0, [1.0, 0.0, 0.5, 1.0]);
                 // gl.draw_2d();

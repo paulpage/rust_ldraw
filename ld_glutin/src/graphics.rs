@@ -4,7 +4,7 @@ use glutin::{self, PossiblyCurrent};
 use self::gl::types::*;
 use rusttype::{point, Scale};
 
-const VS_SRC_2D: &'static [u8] = b"
+const VS_SRC_2D: &[u8] = b"
 #version 330 core
 
 layout (location = 0) in vec2 position;
@@ -18,7 +18,7 @@ void main() {
 }
 \0";
 
-const FS_SRC_2D: &'static [u8] = b"
+const FS_SRC_2D: &[u8] = b"
 #version 330 core
 
 in vec4 v_color;
@@ -409,7 +409,7 @@ impl Graphics {
 
     pub fn draw_bounding_box(&self, a: [f32; 3], b: [f32; 3], world: [f32; 16], view: [f32; 16], proj: [f32; 16], view_position: [f32; 3], light: [f32; 15]) {
         let c = vec![0.0, 1.0, 1.0, 0.3];
-        let mut vertices = vec![
+        let vertices = vec![
             a[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
             a[0], a[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
             a[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],

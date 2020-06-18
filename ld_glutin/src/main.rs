@@ -237,7 +237,7 @@ fn main() {
         // *control_flow = ControlFlow::Wait;
         *control_flow = ControlFlow::Poll;
 
-        windowed_context.window().request_redraw();
+        // windowed_context.window().request_redraw();
 
         if state.left_pressed {
             state.camera.rot_horizontal += 0.02;
@@ -321,7 +321,7 @@ fn main() {
                 }
                 _ => (),
             },
-            Event::RedrawRequested(_) => {
+            Event::MainEventsCleared => {
                 let p = state.camera.position();
                 let view_position = [p.x, p.y, p.z];
                 let light = [

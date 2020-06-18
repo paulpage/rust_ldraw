@@ -61,7 +61,7 @@ impl Camera {
 
 struct Model {
     vertices: Vec<f32>,
-    position: Vector3<f32>,
+    position: Vector3<i32>,
     rotation: Vector3<i32>,
     animation_position_offset: Vector3<f32>,
     animation_rotation_offset: Vector3<f32>,
@@ -127,7 +127,8 @@ fn get_transforms(state: &State, model: &Model) -> (Matrix4<f32>, Matrix4<f32>, 
         Vector3::new(0.0, 1.0, 0.0)
     );
     let proj = cgmath::perspective(Deg(state.camera.fovy), state.aspect_ratio, 0.01, 100.0);
-    let world = Matrix4::from_translation(model.position - model.animation_position_offset)
+    let position = Vector3::new(model.position.x as f32 * 0.5, model.position.y as f32 * 0.2, model.position.z as f32 * 0.5);
+    let world = Matrix4::from_translation(position - model.animation_position_offset)
         * Matrix4::from_angle_x(Deg((model.rotation.x * 90) as f32 - model.animation_rotation_offset.x))
         * Matrix4::from_angle_y(Deg((model.rotation.y * 90) as f32 - model.animation_rotation_offset.y))
         * Matrix4::from_angle_z(Deg((model.rotation.z * 90) as f32 - model.animation_rotation_offset.z));
@@ -188,7 +189,7 @@ fn load_ldraw_file(ldraw_dir: &str, filename: &str, custom_color: Option<[f32; 4
 
     Model {
         vertices,
-        position: Vector3::new(0.0, 0.0, 0.0),
+        position: Vector3::new(0, 0, 0),
         rotation: Vector3::new(0, 0, 0),
         animation_position_offset: Vector3::new(0.0, 0.0, 0.0),
         animation_rotation_offset: Vector3::new(0.0, 0.0, 0.0),
@@ -225,6 +226,8 @@ fn main() {
     );
 
     let font = graphics::Font::from_ttf_data(include_bytes!("../data/LiberationSans-Regular.ttf"));
+
+    let mut new_brick_position = Vector3::new(2, 2, 2);
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
@@ -270,9 +273,14 @@ fn main() {
                         Some(VirtualKeyCode::W) => state.up_pressed = pressed,
                         Some(VirtualKeyCode::S) => state.down_pressed = pressed,
                         Some(VirtualKeyCode::T) => {
-                            let mut model = load_ldraw_file(ldraw_dir, "3001.dat", None);
-                            model.position = Vector3::new(2.0, 2.0, 2.0);
-                            models.push(model);
+                            if pressed {
+                                let mut model = load_ldraw_file(ldraw_dir, "3001.dat", Some([1.0, 0.0, 0.0, 1.0]));
+                                model.position = new_brick_position;
+                                new_brick_position.y += 3;
+                                new_brick_position.z += 1;
+                                models.push(model);
+                                state.active_model_idx = models.len() - 1;
+                            }
                         }
                         Some(VirtualKeyCode::R) => {
                             if pressed {

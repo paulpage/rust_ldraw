@@ -35,7 +35,7 @@ impl Camera {
             distance: 10.0,
             rot_horizontal: 0.5,
             rot_vertical: 0.5,
-            fovy: 90.0,
+            fovy: 45.0,
         }
     }
 
@@ -200,7 +200,7 @@ fn main() {
 
     let ldraw_dir = "/home/paul/Downloads/ldraw";
     let event_loop = EventLoop::new();
-    let window_builder = WindowBuilder::new().with_title("A fantastic window!");
+    let window_builder = WindowBuilder::new().with_title("Bricks");
     let windowed_context =
         ContextBuilder::new().with_vsync(true).build_windowed(window_builder, &event_loop).unwrap();
     let windowed_context = unsafe { windowed_context.make_current().unwrap() };
@@ -217,27 +217,17 @@ fn main() {
         start.elapsed().as_millis(),
     );
 
-    let vertices_2d = vec![
-        -0.5, -0.5, 1.0, 0.0, 0.0, 1.0,
-        0.5, -0.5, 1.0, 0.0, 0.0, 1.0,
-        0.5, 0.5, 1.0, 0.0, 0.0, 1.0,
-    ];
-
     let size = windowed_context.window().inner_size();
     let mut gl: graphics::Graphics = graphics::init(
         &windowed_context.context(),
         size.width as i32,
         size.height as i32,
-        vertices_2d
     );
 
     let font = graphics::Font::from_ttf_data(include_bytes!("../data/LiberationSans-Regular.ttf"));
 
     event_loop.run(move |event, _, control_flow| {
-        // *control_flow = ControlFlow::Wait;
         *control_flow = ControlFlow::Poll;
-
-        // windowed_context.window().request_redraw();
 
         if state.left_pressed {
             state.camera.rot_horizontal += 0.02;
@@ -335,6 +325,7 @@ fn main() {
                 gl.clear([0.0, 1.0, 1.0, 1.0]);
                 let (world, view, proj) = get_transforms(&state, &baseplate);
                 gl.draw_model(&baseplate.vertices, mat_to_array(world), mat_to_array(view), mat_to_array(proj), view_position, light);
+                // gl.draw_rect(0.0, 0.0, 0.4, 0.4, [0.0, 0.0, 1.0, 1.0]);
                 for model in &mut models {
                     let (world, view, proj) = get_transforms(&state, &model);
                     gl.draw_model(&model.vertices, mat_to_array(world), mat_to_array(view), mat_to_array(proj), view_position, light);
@@ -347,18 +338,8 @@ fn main() {
                         }
                     }
                     let delta = model.animation_rotation_offset.y - model.rotation.y as f32;
-                    // if delta.abs() > std::f32::EPSILON {
-                    //     let direction = delta / delta.abs();
-                    //     model.animation_position
-                    //     model.animation_rotation.y = lerp(model.rotation.y as f32 - 90.0 * direction, model.rotation.y as f32, model.animation_index as f32 / model.animation_frames as f32);
-                    //     model.animation_index += 1;
-                    // } else {
-                    //     model.animation_index = 0;
-                    //     model.animation_rotation.y = model.rotation.y as f32;
-                    // }
                 }
                 // font.draw_text(&gl.gl, gl.window_width, gl.window_height, "Hello", -0.5, 0.0, 256.0, [1.0, 0.0, 0.5, 1.0]);
-                // gl.draw_2d();
                 windowed_context.swap_buffers().unwrap();
             },
             _ => (),

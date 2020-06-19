@@ -421,9 +421,22 @@ fn read_file(cache: &mut HashMap<CacheKey, Vec<Polygon>>, ldraw_directory: &str,
     polygons
 }
 
-pub fn load(ldraw_directory: &str, filename: &str) -> Vec<Polygon> {
-    let mut cache = HashMap::new();
-    read_file(&mut cache, ldraw_directory, filename, false)
+pub struct Parser {
+    cache: HashMap<CacheKey, Vec<Polygon>>,
+    ldraw_directory: String,
+}
+
+impl Parser {
+    pub fn new(ldraw_directory: &str) -> Self {
+        Self {
+            cache: HashMap::new(),
+            ldraw_directory: ldraw_directory.into(),
+        }
+    }
+
+    pub fn load(&mut self, filename: &str) -> Vec<Polygon> {
+        read_file(&mut self.cache, &self.ldraw_directory, filename, false)
+    }
 }
 
 pub fn write_obj(polygons: &[Polygon], filename: &str) -> Result<()> {

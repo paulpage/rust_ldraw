@@ -6,7 +6,9 @@ use cgmath::{Matrix4, Vector2, Deg, Vector3, Point3, SquareMatrix, Vector4};
 use std::time::Instant;
 
 mod graphics;
+
 mod parser;
+use parser::Parser;
 
 fn fmin(a: f32, b: f32) -> f32 {
     if b < a { b } else { a }
@@ -63,9 +65,20 @@ struct Model {
     vertices: Vec<f32>,
     position: Vector3<i32>,
     rotation: Vector3<i32>,
+    transform: Matrix4<f32>,
     animation_position_offset: Vector3<f32>,
     animation_rotation_offset: Vector3<f32>,
     bounding_box: BoundingBox,
+}
+
+impl Model {
+    fn set_transform(&mut self) {
+        let position = Vector3::new(self.position.x as f32 * 0.5, self.position.y as f32 * 0.2, self.position.z as f32 * 0.5);
+        self.transform = Matrix4::from_translation(position - self.animation_position_offset)
+            * Matrix4::from_angle_x(Deg((self.rotation.x * 90) as f32 - self.animation_rotation_offset.x))
+            * Matrix4::from_angle_y(Deg((self.rotation.y * 90) as f32 - self.animation_rotation_offset.y))
+            * Matrix4::from_angle_z(Deg((self.rotation.z * 90) as f32 - self.animation_rotation_offset.z))
+    }
 }
 
 struct BoundingBox {
@@ -120,19 +133,14 @@ fn get_mouse_ray(state: &State, mouse_position: Vector2<f32>, camera: &Camera) -
     (camera.position(), direction)
 }
 
-fn get_transforms(state: &State, model: &Model) -> (Matrix4<f32>, Matrix4<f32>, Matrix4<f32>) {
+fn get_global_transforms(state: &State) -> (Matrix4<f32>, Matrix4<f32>) {
     let view = Matrix4::look_at(
         state.camera.position(),
         state.camera.focus,
         Vector3::new(0.0, 1.0, 0.0)
     );
     let proj = cgmath::perspective(Deg(state.camera.fovy), state.aspect_ratio, 0.01, 100.0);
-    let position = Vector3::new(model.position.x as f32 * 0.5, model.position.y as f32 * 0.2, model.position.z as f32 * 0.5);
-    let world = Matrix4::from_translation(position - model.animation_position_offset)
-        * Matrix4::from_angle_x(Deg((model.rotation.x * 90) as f32 - model.animation_rotation_offset.x))
-        * Matrix4::from_angle_y(Deg((model.rotation.y * 90) as f32 - model.animation_rotation_offset.y))
-        * Matrix4::from_angle_z(Deg((model.rotation.z * 90) as f32 - model.animation_rotation_offset.z));
-    (world, view, proj)
+    (view, proj)
 }
 
 fn mat_to_array(m: Matrix4<f32>) -> [f32; 16] {
@@ -145,8 +153,8 @@ fn mat_to_array(m: Matrix4<f32>) -> [f32; 16] {
     ]
 }
 
-fn load_ldraw_file(ldraw_dir: &str, filename: &str, custom_color: Option<[f32; 4]>) -> Model {
-    let polygons = parser::load(ldraw_dir, filename);
+fn load_ldraw_file(parser: &mut Parser, filename: &str, custom_color: Option<[f32; 4]>) -> Model {
+    let polygons = parser.load(filename);
     let mut vertices = Vec::new();
     let mut bounding_box = BoundingBox {
         min: Point3::new(f32::MAX, f32::MAX, f32::MAX),
@@ -191,6 +199,7 @@ fn load_ldraw_file(ldraw_dir: &str, filename: &str, custom_color: Option<[f32; 4
         vertices,
         position: Vector3::new(0, 0, 0),
         rotation: Vector3::new(0, 0, 0),
+        transform: Matrix4::identity(),
         animation_position_offset: Vector3::new(0.0, 0.0, 0.0),
         animation_rotation_offset: Vector3::new(0.0, 0.0, 0.0),
         bounding_box,
@@ -199,19 +208,34 @@ fn load_ldraw_file(ldraw_dir: &str, filename: &str, custom_color: Option<[f32; 4
 
 fn main() {
 
-    let ldraw_dir = "/home/paul/Downloads/ldraw";
+    let mut parser = Parser::new("/home/paul/Downloads/ldraw");
     let event_loop = EventLoop::new();
     let window_builder = WindowBuilder::new().with_title("Bricks");
     let windowed_context =
         ContextBuilder::new().with_vsync(true).build_windowed(window_builder, &event_loop).unwrap();
     let windowed_context = unsafe { windowed_context.make_current().unwrap() };
 
-    let baseplate = load_ldraw_file(ldraw_dir, "3811.dat", None);
+    let baseplate = load_ldraw_file(&mut parser, "3811.dat", None);
     let mut state = State::new();
     let mut models = Vec::new();
 
     let start = Instant::now();
-    models.push(load_ldraw_file(ldraw_dir, "car.ldr", None));
+
+    let mut new_position = Vector3::new(0, 0, 0);
+    for x in 0..20 {
+        for y in 0..20 {
+            for z in 0..20 {
+                let mut model = load_ldraw_file(&mut parser, "3005.dat", Some([1.0, 0.0, 0.0, 1.0]));
+                model.position = new_position;
+                new_position.x = x;
+                new_position.y = y * 3;
+                new_position.z = z;
+                model.set_transform();
+                models.push(model);
+            }
+        }
+    }
+    // // models.push(load_ldraw_file(ldraw_dir, "car.ldr", None));
 
     println!(
         "load time: {} ms",
@@ -274,10 +298,11 @@ fn main() {
                         Some(VirtualKeyCode::S) => state.down_pressed = pressed,
                         Some(VirtualKeyCode::T) => {
                             if pressed {
-                                let mut model = load_ldraw_file(ldraw_dir, "3001.dat", Some([1.0, 0.0, 0.0, 1.0]));
+                                let mut model = load_ldraw_file(&mut parser, "3005.dat", Some([1.0, 0.0, 0.0, 1.0]));
                                 model.position = new_brick_position;
                                 new_brick_position.y += 3;
                                 new_brick_position.z += 1;
+                                model.set_transform();
                                 models.push(model);
                                 state.active_model_idx = models.len() - 1;
                             }
@@ -286,6 +311,7 @@ fn main() {
                             if pressed {
                                 models[state.active_model_idx].rotation.y += 1;
                                 models[state.active_model_idx].animation_rotation_offset.y = 90.0;
+                                models[state.active_model_idx].set_transform();
                             }
                         }
                         _ => {}
@@ -320,6 +346,7 @@ fn main() {
                 _ => (),
             },
             Event::MainEventsCleared => {
+                let start = Instant::now();
                 let p = state.camera.position();
                 let view_position = [p.x, p.y, p.z];
                 let light = [
@@ -331,12 +358,10 @@ fn main() {
                     1.0, 1.0, 1.0,
                 ];
                 gl.clear([0.0, 1.0, 1.0, 1.0]);
-                let (world, view, proj) = get_transforms(&state, &baseplate);
-                gl.draw_model(&baseplate.vertices, mat_to_array(world), mat_to_array(view), mat_to_array(proj), view_position, light);
-                // gl.draw_rect(0.0, 0.0, 0.4, 0.4, [0.0, 0.0, 1.0, 1.0]);
+                let (view, proj) = get_global_transforms(&state);
+                gl.draw_model(&baseplate.vertices, mat_to_array(baseplate.transform), mat_to_array(view), mat_to_array(proj), view_position, light);
                 for model in &mut models {
-                    let (world, view, proj) = get_transforms(&state, &model);
-                    gl.draw_model(&model.vertices, mat_to_array(world), mat_to_array(view), mat_to_array(proj), view_position, light);
+                    gl.draw_model(&model.vertices, mat_to_array(model.transform), mat_to_array(view), mat_to_array(proj), view_position, light);
 
                     if model.animation_rotation_offset.y.abs() > std::f32::EPSILON {
                         let direction = model.animation_rotation_offset.y / model.animation_rotation_offset.y.abs();
@@ -344,10 +369,15 @@ fn main() {
                         if model.animation_rotation_offset.y < 15.0 {
                             model.animation_rotation_offset.y = 0.0;
                         }
+                        model.set_transform();
                     }
-                    let delta = model.animation_rotation_offset.y - model.rotation.y as f32;
                 }
-                // font.draw_text(&gl.gl, gl.window_width, gl.window_height, "Hello", -0.5, 0.0, 256.0, [1.0, 0.0, 0.5, 1.0]);
+                font.draw_text(
+                    &gl.gl,
+                    gl.window_width,
+                    gl.window_height,
+                    &format!("Frame time: {}", start.elapsed().as_millis()),
+                    -0.5, 0.0, 256.0, [1.0, 0.0, 0.5, 1.0]);
                 windowed_context.swap_buffers().unwrap();
             },
             _ => (),

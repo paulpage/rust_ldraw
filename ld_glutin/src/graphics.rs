@@ -130,6 +130,18 @@ pub struct Font {
     font: rusttype::Font<'static>,
 }
 
+pub struct Uniforms {
+    world: GLint,
+    view: GLint,
+    proj: GLint,
+    view_position: GLint,
+    light_position: GLint,
+    light_direction: GLint,
+    light_ambient: GLint,
+    light_diffuse: GLint,
+    light_specular: GLint,
+}
+
 impl<'a> Font {
     pub fn from_ttf_data(data: &'static [u8]) -> Self {
         Self {
@@ -258,6 +270,7 @@ pub struct Graphics {
     program: u32,
     program_2d: u32,
     pub gl: gl::Gl,
+    uniforms: Uniforms,
 }
 
 fn create_shader(gl: &gl::Gl, shader_type: u32, source: &'static [u8]) -> u32 {
@@ -340,13 +353,28 @@ pub fn init(
 
     let program = create_program(&gl, VS_SRC, FS_SRC);
     let program_2d = create_program(&gl, VS_SRC_2D, FS_SRC_2D);
-        Graphics {
-            window_height,
-            window_width,
-            program,
-            program_2d,
-            gl,
+
+    let uniforms = unsafe {
+        Uniforms {
+            world: gl.GetUniformLocation(program, b"world\0".as_ptr() as *const _),
+            view: gl.GetUniformLocation(program, b"view\0".as_ptr() as *const _),
+            proj: gl.GetUniformLocation(program, b"proj\0".as_ptr() as *const _),
+            view_position: gl.GetUniformLocation(program, b"view_position\0".as_ptr() as *const _),
+            light_position: gl.GetUniformLocation(program, b"light.position\0".as_ptr() as *const _),
+            light_direction: gl.GetUniformLocation(program, b"light.direction\0".as_ptr() as *const _),
+            light_ambient: gl.GetUniformLocation(program, b"light.ambient\0".as_ptr() as *const _),
+            light_diffuse: gl.GetUniformLocation(program, b"light.diffuse\0".as_ptr() as *const _),
+            light_specular: gl.GetUniformLocation(program, b"light.specular\0".as_ptr() as *const _),
         }
+    };
+    Graphics {
+        window_height,
+        window_width,
+        program,
+        program_2d,
+        gl,
+        uniforms,
+    }
 }
 
 impl Graphics {
@@ -414,50 +442,52 @@ impl Graphics {
         self.window_height = y;
     }
 
-    pub fn draw_bounding_box(&self, a: [f32; 3], b: [f32; 3], world: [f32; 16], view: [f32; 16], proj: [f32; 16], view_position: [f32; 3], light: [f32; 15]) {
-        let c = vec![0.0, 1.0, 1.0, 0.3];
-        let vertices = vec![
-            a[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            a[0], a[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            a[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            a[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            a[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            a[0], b[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            a[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            a[0], a[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            b[0], a[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            a[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            b[0], a[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            b[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            b[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            b[0], a[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            b[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            b[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            b[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            b[0], b[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            a[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            a[0], b[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            b[0], b[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            a[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            b[0], b[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            b[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            a[0], b[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            a[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            b[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            a[0], b[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            b[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            b[0], b[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            a[0], a[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            a[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            b[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            a[0], a[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            b[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
-            b[0], a[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3]
-        ];
-        self.draw_model(&vertices, world, view, proj, view_position, light);
-    }
+    // pub fn draw_bounding_box(&self, a: [f32; 3], b: [f32; 3], world: [f32; 16], view: [f32; 16], proj: [f32; 16], view_position: [f32; 3], light: [f32; 15]) {
+    //     let c = vec![0.0, 1.0, 1.0, 0.3];
+    //     let vertices = vec![
+    //         a[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         a[0], a[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         a[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         a[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         a[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         a[0], b[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         a[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         a[0], a[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         b[0], a[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         a[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         b[0], a[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         b[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         b[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         b[0], a[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         b[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         b[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         b[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         b[0], b[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         a[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         a[0], b[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         b[0], b[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         a[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         b[0], b[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         b[0], a[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         a[0], b[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         a[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         b[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         a[0], b[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         b[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         b[0], b[1], a[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         a[0], a[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         a[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         b[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         a[0], a[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         b[0], b[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3],
+    //         b[0], a[1], b[2], 0.0, 1.0, 0.0, c[0], c[1], c[2], c[3]
+    //     ];
+    //     self.draw_model(&vertices, world, view, proj, view_position, light);
+    // }
 
-    pub fn draw_model(&self, vertices: &[f32], world: [f32; 16], view: [f32; 16], proj: [f32; 16], view_position: [f32; 3], light: [f32; 15]) {
+    pub fn load_model(&mut self, vertices: &[f32]) -> (u32, u32, i32) {
+        // TODO there is no "unload_model" right now because this is meant to be run once for each
+        // model, and all the memory can be cleaned up when the program exits.
         let gl = &self.gl;
         let (mut vao, mut vbo) = (0, 0);
         unsafe {
@@ -480,71 +510,30 @@ impl Graphics {
             gl.VertexAttribPointer(2, 4, gl::FLOAT, gl::FALSE, stride, (6 * mem::size_of::<GLfloat>()) as *const _);
             gl.BindBuffer(gl::ARRAY_BUFFER, 0);
             gl.BindVertexArray(0);
+        }
+        (vao, vbo, vertices.len() as i32)
+    }
 
+    pub fn draw_model(&self, vao: GLuint, vbo: GLuint, vertex_buffer_length: i32, world: [f32; 16], view: [f32; 16], proj: [f32; 16], view_position: [f32; 3], light: [f32; 15]) {
+        let gl = &self.gl;
+        unsafe {
             self.gl.Enable(gl::DEPTH_TEST);
             self.gl.UseProgram(self.program);
-            self.gl.UniformMatrix4fv(
-                self.gl.GetUniformLocation(self.program, b"world\0".as_ptr() as *const _),
-                1,
-                gl::FALSE,
-                world.as_ptr()
-            );
-            self.gl.UniformMatrix4fv(
-                self.gl.GetUniformLocation(self.program, b"view\0".as_ptr() as *const _),
-                1,
-                gl::FALSE,
-                view.as_ptr()
-            );
-            self.gl.UniformMatrix4fv(
-                self.gl.GetUniformLocation(self.program, "proj\0".as_ptr() as *const _),
-                1,
-                gl::FALSE,
-                proj.as_ptr()
-            );
 
-            self.gl.Uniform3f(
-                self.gl.GetUniformLocation(self.program, "view_position\0".as_ptr() as *const _),
-                view_position[0],
-                view_position[1],
-                view_position[2]
-            );
-            self.gl.Uniform3f(
-                self.gl.GetUniformLocation(self.program, "light.position\0".as_ptr() as *const _),
-                light[0],
-                light[1],
-                light[2],
-            );
-            self.gl.Uniform3f(
-                self.gl.GetUniformLocation(self.program, "light.direction\0".as_ptr() as *const _),
-                light[3],
-                light[4],
-                light[5],
-            );
-            self.gl.Uniform3f(
-                self.gl.GetUniformLocation(self.program, "light.ambient\0".as_ptr() as *const _),
-                light[6],
-                light[7],
-                light[8],
-            );
-            self.gl.Uniform3f(
-                self.gl.GetUniformLocation(self.program, "light.diffuse\0".as_ptr() as *const _),
-                light[9],
-                light[10],
-                light[11],
-            );
-            self.gl.Uniform3f(
-                self.gl.GetUniformLocation(self.program, "light.specular\0".as_ptr() as *const _),
-                light[12],
-                light[13],
-                light[14],
-            );
+            self.gl.UniformMatrix4fv(self.uniforms.world, 1, gl::FALSE, world.as_ptr());
+            self.gl.UniformMatrix4fv(self.uniforms.view, 1, gl::FALSE, view.as_ptr());
+            self.gl.UniformMatrix4fv(self.uniforms.proj, 1, gl::FALSE, proj.as_ptr());
+            self.gl.Uniform3f(self.uniforms.view_position, view_position[0], view_position[1], view_position[2]);
+            self.gl.Uniform3f(self.uniforms.light_position, light[0], light[1], light[2]);
+            self.gl.Uniform3f(self.uniforms.light_direction, light[3], light[4], light[5]);
+            self.gl.Uniform3f(self.uniforms.light_ambient, light[6], light[7], light[8]);
+            self.gl.Uniform3f(self.uniforms.light_diffuse, light[9], light[10], light[11]);
+            self.gl.Uniform3f(self.uniforms.light_specular, light[12], light[13], light[14]);
 
             self.gl.BindVertexArray(vao);
-            self.gl.DrawArrays(gl::TRIANGLES, 0, vertices.len() as GLsizei);
+            self.gl.DrawArrays(gl::TRIANGLES, 0, vertex_buffer_length as GLsizei);
             self.gl.BindVertexArray(0);
             self.gl.Disable(gl::DEPTH_TEST);
-            self.gl.DeleteVertexArrays(1, &mut vao);
-            self.gl.DeleteBuffers(1, &mut vbo);
         }
     }
 }

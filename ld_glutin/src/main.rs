@@ -6,6 +6,7 @@ use cgmath::{Matrix4, Vector2, Deg, Vector3, Point3, SquareMatrix, Vector4};
 use std::time::Instant;
 
 mod graphics;
+use graphics::Graphics;
 
 mod parser;
 use parser::Parser;
@@ -62,7 +63,9 @@ impl Camera {
 }
 
 struct Model {
-    vertices: Vec<f32>,
+    vao: u32,
+    vbo: u32,
+    vertex_buffer_length: i32,
     position: Vector3<i32>,
     rotation: Vector3<i32>,
     transform: Matrix4<f32>,
@@ -153,7 +156,7 @@ fn mat_to_array(m: Matrix4<f32>) -> [f32; 16] {
     ]
 }
 
-fn load_ldraw_file(parser: &mut Parser, filename: &str, custom_color: Option<[f32; 4]>) -> Model {
+fn load_ldraw_file(gl: &mut Graphics, parser: &mut Parser, filename: &str, custom_color: Option<[f32; 4]>) -> Model {
     let polygons = parser.load(filename);
     let mut vertices = Vec::new();
     let mut bounding_box = BoundingBox {
@@ -195,8 +198,13 @@ fn load_ldraw_file(parser: &mut Parser, filename: &str, custom_color: Option<[f3
         }
     }
 
+    let (vao, vbo, vertex_buffer_length) = gl.load_model(&vertices);
+
     Model {
-        vertices,
+        vao,
+        vbo,
+        vertex_buffer_length,
+        // vertices,
         position: Vector3::new(0, 0, 0),
         rotation: Vector3::new(0, 0, 0),
         transform: Matrix4::identity(),
@@ -215,26 +223,12 @@ fn main() {
         ContextBuilder::new().with_vsync(true).build_windowed(window_builder, &event_loop).unwrap();
     let windowed_context = unsafe { windowed_context.make_current().unwrap() };
 
-    let baseplate = load_ldraw_file(&mut parser, "3811.dat", None);
     let mut state = State::new();
     let mut models = Vec::new();
 
     let start = Instant::now();
 
     let mut new_position = Vector3::new(0, 0, 0);
-    for x in 0..20 {
-        for y in 0..20 {
-            for z in 0..20 {
-                let mut model = load_ldraw_file(&mut parser, "3005.dat", Some([1.0, 0.0, 0.0, 1.0]));
-                model.position = new_position;
-                new_position.x = x;
-                new_position.y = y * 3;
-                new_position.z = z;
-                model.set_transform();
-                models.push(model);
-            }
-        }
-    }
     // // models.push(load_ldraw_file(ldraw_dir, "car.ldr", None));
 
     println!(
@@ -248,6 +242,21 @@ fn main() {
         size.width as i32,
         size.height as i32,
     );
+
+    let baseplate = load_ldraw_file(&mut gl, &mut parser, "3811.dat", None);
+    for x in 0..20 {
+        for y in 0..20 {
+            for z in 0..20 {
+                let mut model = load_ldraw_file(&mut gl, &mut parser, "3005.dat", Some([1.0, 0.0, 0.0, 1.0]));
+                model.position = new_position;
+                new_position.x = x;
+                new_position.y = y * 3;
+                new_position.z = z;
+                model.set_transform();
+                models.push(model);
+            }
+        }
+    }
 
     let font = graphics::Font::from_ttf_data(include_bytes!("../data/LiberationSans-Regular.ttf"));
 
@@ -298,7 +307,7 @@ fn main() {
                         Some(VirtualKeyCode::S) => state.down_pressed = pressed,
                         Some(VirtualKeyCode::T) => {
                             if pressed {
-                                let mut model = load_ldraw_file(&mut parser, "3005.dat", Some([1.0, 0.0, 0.0, 1.0]));
+                                let mut model = load_ldraw_file(&mut gl, &mut parser, "3005.dat", Some([1.0, 0.0, 0.0, 1.0]));
                                 model.position = new_brick_position;
                                 new_brick_position.y += 3;
                                 new_brick_position.z += 1;
@@ -359,9 +368,9 @@ fn main() {
                 ];
                 gl.clear([0.0, 1.0, 1.0, 1.0]);
                 let (view, proj) = get_global_transforms(&state);
-                gl.draw_model(&baseplate.vertices, mat_to_array(baseplate.transform), mat_to_array(view), mat_to_array(proj), view_position, light);
+                gl.draw_model(baseplate.vao, baseplate.vbo, baseplate.vertex_buffer_length, mat_to_array(baseplate.transform), mat_to_array(view), mat_to_array(proj), view_position, light);
                 for model in &mut models {
-                    gl.draw_model(&model.vertices, mat_to_array(model.transform), mat_to_array(view), mat_to_array(proj), view_position, light);
+                    gl.draw_model(model.vao, model.vbo, model.vertex_buffer_length,mat_to_array(model.transform), mat_to_array(view), mat_to_array(proj), view_position, light);
 
                     if model.animation_rotation_offset.y.abs() > std::f32::EPSILON {
                         let direction = model.animation_rotation_offset.y / model.animation_rotation_offset.y.abs();

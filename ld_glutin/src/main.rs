@@ -8,7 +8,7 @@ use std::time::Instant;
 mod graphics;
 
 mod parser;
-use parser::Parser;
+use parser::{Parser, IndexedPolygons, LdrawColor, Polygon};
 
 fn fmin(a: f32, b: f32) -> f32 {
     if b < a { b } else { a }
@@ -63,12 +63,14 @@ impl Camera {
 
 struct Model {
     vertices: Vec<f32>,
+    indices: Vec<u32>,
     position: Vector3<i32>,
     rotation: Vector3<i32>,
     transform: Matrix4<f32>,
     animation_position_offset: Vector3<f32>,
     animation_rotation_offset: Vector3<f32>,
     bounding_box: BoundingBox,
+    color: [f32; 4],
 }
 
 impl Model {
@@ -156,34 +158,52 @@ fn mat_to_array(m: Matrix4<f32>) -> [f32; 16] {
 fn load_ldraw_file(parser: &mut Parser, filename: &str, custom_color: Option<[f32; 4]>) -> Model {
     let polygons = parser.load(filename);
     let mut vertices = Vec::new();
+    let mut indices = Vec::new();
     let mut bounding_box = BoundingBox {
         min: Point3::new(f32::MAX, f32::MAX, f32::MAX),
         max: Point3::new(f32::MIN, f32::MIN, f32::MIN),
     };
-    for polygon in &polygons {
-        let mut color = match polygon.color {
+    let color = if let Some(c) = custom_color {
+        c
+    } else {
+        match polygons.color {
             parser::LdrawColor::RGBA(r, g, b, a) => [r, g, b, a],
             _ => [0.0, 1.0, 0.0, 1.0],
-        };
-        if let Some(c) = custom_color {
-            color = c;
         }
+    };
+    for polygon in &polygons.polygons {
+        // let mut color = match polygon.color {
+        //     parser::LdrawColor::RGBA(r, g, b, a) => [r, g, b, a],
+        //     _ => [0.0, 1.0, 0.0, 1.0],
+        // };
+        // if let Some(c) = custom_color {
+        //     color = c;
+        // }
 
-        if polygon.points.len() == 3 {
-            let n = parser::norm(polygon);
+        if true {
+            let polygon = Polygon {
+                points: vec![
+                    polygons.points[polygon.x],
+                    polygons.points[polygon.y],
+                    polygons.points[polygon.z],
+                ],
+                color: LdrawColor::Main,
+            };
+            let n = parser::norm(&polygon);
             for point in &polygon.points {
-
                 vertices.push(point.x / 40.0);
                 vertices.push(point.y / -40.0);
                 vertices.push(point.z / 40.0);
                 vertices.push(n.x);
                 vertices.push(n.y);
                 vertices.push(n.z);
+                // TODO We're using uniforms for the color instead of passing it in for each
+                // vertex, which breaks models
                 // TODO Might have to sort transparent faces
-                vertices.push(color[0]);
-                vertices.push(color[1]);
-                vertices.push(color[2]);
-                vertices.push(color[3]);
+                // vertices.push(color[0]);
+                // vertices.push(color[1]);
+                // vertices.push(color[2]);
+                // vertices.push(color[3]);
 
                 bounding_box.min.x = fmin(bounding_box.min.x, point.x / 40.0);
                 bounding_box.min.y = fmin(bounding_box.min.y, point.y / -40.0);
@@ -195,14 +215,22 @@ fn load_ldraw_file(parser: &mut Parser, filename: &str, custom_color: Option<[f3
         }
     }
 
+    for polygon in polygons.polygons {
+        indices.push(polygon.x as u32);
+        indices.push(polygon.y as u32);
+        indices.push(polygon.z as u32);
+    }
+
     Model {
         vertices,
+        indices,
         position: Vector3::new(0, 0, 0),
         rotation: Vector3::new(0, 0, 0),
         transform: Matrix4::identity(),
         animation_position_offset: Vector3::new(0.0, 0.0, 0.0),
         animation_rotation_offset: Vector3::new(0.0, 0.0, 0.0),
         bounding_box,
+        color,
     }
 }
 
@@ -222,6 +250,7 @@ fn main() {
     let start = Instant::now();
 
     let mut new_position = Vector3::new(0, 0, 0);
+    // models.push(load_ldraw_file(&mut parser, "car.ldr", None));
     for x in 0..20 {
         for y in 0..20 {
             for z in 0..20 {
@@ -359,9 +388,9 @@ fn main() {
                 ];
                 gl.clear([0.0, 1.0, 1.0, 1.0]);
                 let (view, proj) = get_global_transforms(&state);
-                gl.draw_model(&baseplate.vertices, mat_to_array(baseplate.transform), mat_to_array(view), mat_to_array(proj), view_position, light);
+                gl.draw_model(&baseplate.vertices, &baseplate.indices, mat_to_array(baseplate.transform), mat_to_array(view), mat_to_array(proj), view_position, light, baseplate.color);
                 for model in &mut models {
-                    gl.draw_model(&model.vertices, mat_to_array(model.transform), mat_to_array(view), mat_to_array(proj), view_position, light);
+                    gl.draw_model(&model.vertices, &model.indices, mat_to_array(model.transform), mat_to_array(view), mat_to_array(proj), view_position, light, model.color);
 
                     if model.animation_rotation_offset.y.abs() > std::f32::EPSILON {
                         let direction = model.animation_rotation_offset.y / model.animation_rotation_offset.y.abs();

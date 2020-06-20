@@ -12,7 +12,7 @@ pub struct Polygon {
     pub color: LdrawColor,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum LdrawColor {
     Main,
     Complement,
@@ -426,6 +426,16 @@ pub struct Parser {
     ldraw_directory: String,
 }
 
+pub struct IndexedPolygons {
+    pub points: Vec<Point3<f32>>,
+    pub polygons: Vec<Point3<usize>>,
+    pub color: LdrawColor,
+}
+
+fn feq(a: f32, b: f32) -> bool {
+    (a - b).abs() < std::f32::EPSILON
+}
+
 impl Parser {
     pub fn new(ldraw_directory: &str) -> Self {
         Self {
@@ -434,8 +444,51 @@ impl Parser {
         }
     }
 
-    pub fn load(&mut self, filename: &str) -> Vec<Polygon> {
-        read_file(&mut self.cache, &self.ldraw_directory, filename, false)
+    pub fn load(&mut self, filename: &str) -> IndexedPolygons {
+        let start = Instant::now();
+        let polygons = read_file(&mut self.cache, &self.ldraw_directory, filename, false);
+        println!("Base loading done in {} ms", start.elapsed().as_millis());
+        let start = Instant::now();
+
+        let color = polygons[0].color;
+        let mut result = IndexedPolygons {
+            points: Vec::new(),
+            polygons: Vec::new(),
+            color: color,
+        };
+        for (j, polygon)  in polygons.iter().enumerate() {
+            println!("{} done out of {}", j, polygons.len());
+            let mut new_polygon = Point3::new(0, 0, 0);
+            let is_set = Point3::new(false, false, false);
+            for (i, old_point) in result.points.iter().enumerate() {
+                if feq(polygon.points[0].x, old_point.x) && feq(polygon.points[0].y, old_point.y) && feq(polygon.points[0].z, old_point.z) {
+                    new_polygon.x = i;
+                }
+                if feq(polygon.points[1].x, old_point.x) && feq(polygon.points[1].y, old_point.y) && feq(polygon.points[1].z, old_point.z) {
+                    new_polygon.y = i;
+                }
+                if feq(polygon.points[2].x, old_point.x) && feq(polygon.points[2].y, old_point.y) && feq(polygon.points[2].z, old_point.z) {
+                    new_polygon.z = i;
+                }
+            }
+            if !is_set.x {
+                result.points.push(Point3::new(polygon.points[0].x, polygon.points[0].y, polygon.points[0].z));
+                new_polygon.x = result.points.len() - 1;
+            }
+            if !is_set.y {
+                result.points.push(Point3::new(polygon.points[1].x, polygon.points[1].y, polygon.points[1].z));
+                // result.points.push(Point3::new(polygon.points[0], polygon.points[1], polygon.points[2]));
+                new_polygon.y = result.points.len() - 1;
+            }
+            if !is_set.z {
+                result.points.push(Point3::new(polygon.points[2].x, polygon.points[2].y, polygon.points[2].z));
+                // result.points.push(Point3::new(polygon.points[0], polygon.points[1], polygon.points[2]));
+                new_polygon.z = result.points.len() - 1;
+            }
+            result.polygons.push(new_polygon);
+        }
+        println!("Indexing done in {} ms", start.elapsed().as_millis());
+        result
     }
 }
 

@@ -19,10 +19,6 @@ fn fmax(a: f32, b: f32) -> f32 {
     if b > a { b } else { a }
 }
 
-fn lerp(a: f32, b: f32, by: f32) -> f32 {
-    a + (b - a) * by
-}
-
 struct Camera {
     focus: Point3<f32>,
     distance: f32,
@@ -64,23 +60,22 @@ impl Camera {
 
 struct Model {
     vao: u32,
-    vbo: u32,
     vertex_buffer_length: i32,
     position: Vector3<i32>,
     rotation: Vector3<i32>,
     transform: Matrix4<f32>,
-    animation_position_offset: Vector3<f32>,
-    animation_rotation_offset: Vector3<f32>,
+    position_offset: Vector3<f32>,
+    rotation_offset: Vector3<f32>,
     bounding_box: BoundingBox,
 }
 
 impl Model {
     fn set_transform(&mut self) {
         let position = Vector3::new(self.position.x as f32 * 0.5, self.position.y as f32 * 0.2, self.position.z as f32 * 0.5);
-        self.transform = Matrix4::from_translation(position - self.animation_position_offset)
-            * Matrix4::from_angle_x(Deg((self.rotation.x * 90) as f32 - self.animation_rotation_offset.x))
-            * Matrix4::from_angle_y(Deg((self.rotation.y * 90) as f32 - self.animation_rotation_offset.y))
-            * Matrix4::from_angle_z(Deg((self.rotation.z * 90) as f32 - self.animation_rotation_offset.z))
+        self.transform = Matrix4::from_translation(position - self.position_offset)
+            * Matrix4::from_angle_x(Deg((self.rotation.x * 90) as f32 - self.rotation_offset.x))
+            * Matrix4::from_angle_y(Deg((self.rotation.y * 90) as f32 - self.rotation_offset.y))
+            * Matrix4::from_angle_z(Deg((self.rotation.z * 90) as f32 - self.rotation_offset.z))
     }
 }
 
@@ -90,7 +85,6 @@ struct BoundingBox {
 }
 
 struct State {
-    fovy: f32,
     camera: Camera,
     aspect_ratio: f32,
     up_pressed: bool,
@@ -107,7 +101,6 @@ impl State {
     fn new() -> Self {
         Self {
             aspect_ratio: 1.0,
-            fovy: 90.0,
             camera: Camera::new(),
             up_pressed: false,
             down_pressed: false,
@@ -198,18 +191,17 @@ fn load_ldraw_file(gl: &mut Graphics, parser: &mut Parser, filename: &str, custo
         }
     }
 
-    let (vao, vbo, vertex_buffer_length) = gl.load_model(&vertices);
+    let (vao, vertex_buffer_length) = gl.load_model(&vertices);
 
     Model {
         vao,
-        vbo,
         vertex_buffer_length,
         // vertices,
         position: Vector3::new(0, 0, 0),
         rotation: Vector3::new(0, 0, 0),
         transform: Matrix4::identity(),
-        animation_position_offset: Vector3::new(0.0, 0.0, 0.0),
-        animation_rotation_offset: Vector3::new(0.0, 0.0, 0.0),
+        position_offset: Vector3::new(0.0, 0.0, 0.0),
+        rotation_offset: Vector3::new(0.0, 0.0, 0.0),
         bounding_box,
     }
 }
@@ -319,7 +311,7 @@ fn main() {
                         Some(VirtualKeyCode::R) => {
                             if pressed {
                                 models[state.active_model_idx].rotation.y += 1;
-                                models[state.active_model_idx].animation_rotation_offset.y = 90.0;
+                                models[state.active_model_idx].rotation_offset.y = 90.0;
                                 models[state.active_model_idx].set_transform();
                             }
                         }
@@ -368,15 +360,16 @@ fn main() {
                 ];
                 gl.clear([0.0, 1.0, 1.0, 1.0]);
                 let (view, proj) = get_global_transforms(&state);
-                gl.draw_model(baseplate.vao, baseplate.vbo, baseplate.vertex_buffer_length, mat_to_array(baseplate.transform), mat_to_array(view), mat_to_array(proj), view_position, light);
+                gl.start_3d();
+                gl.draw_model(baseplate.vao, baseplate.vertex_buffer_length, mat_to_array(baseplate.transform), mat_to_array(view), mat_to_array(proj), view_position, light);
                 for model in &mut models {
-                    gl.draw_model(model.vao, model.vbo, model.vertex_buffer_length,mat_to_array(model.transform), mat_to_array(view), mat_to_array(proj), view_position, light);
+                    gl.draw_model(model.vao, model.vertex_buffer_length,mat_to_array(model.transform), mat_to_array(view), mat_to_array(proj), view_position, light);
 
-                    if model.animation_rotation_offset.y.abs() > std::f32::EPSILON {
-                        let direction = model.animation_rotation_offset.y / model.animation_rotation_offset.y.abs();
-                        model.animation_rotation_offset.y -= 15.0 * direction;
-                        if model.animation_rotation_offset.y < 15.0 {
-                            model.animation_rotation_offset.y = 0.0;
+                    if model.rotation_offset.y.abs() > std::f32::EPSILON {
+                        let direction = model.rotation_offset.y / model.rotation_offset.y.abs();
+                        model.rotation_offset.y -= 15.0 * direction;
+                        if model.rotation_offset.y < 15.0 {
+                            model.rotation_offset.y = 0.0;
                         }
                         model.set_transform();
                     }

@@ -87,12 +87,6 @@ void main() {
     vec3 specular = light.specular * pow(max(dot(view_direction, reflection_direction), 0.0), 32);
 
     gl_FragColor = vec4((ambient + diffuse + specular), 1.0) * v_color;
-
-    // float brightness = dot(normalize(v_normal), normalize(LIGHT));
-    // vec3 dark_color = v_color.xyz * 0.2;
-    // vec3 regular_color = v_color.xyz;
-
-    // gl_FragColor = vec4(mix(dark_color, regular_color, brightness), v_color.w);
 }
 \0";
 
@@ -126,10 +120,6 @@ void main() {
 }
 \0";
 
-pub struct Font {
-    font: rusttype::Font<'static>,
-}
-
 pub struct Uniforms {
     world: GLint,
     view: GLint,
@@ -140,6 +130,10 @@ pub struct Uniforms {
     light_ambient: GLint,
     light_diffuse: GLint,
     light_specular: GLint,
+}
+
+pub struct Font {
+    font: rusttype::Font<'static>,
 }
 
 impl<'a> Font {
@@ -485,7 +479,7 @@ impl Graphics {
     //     self.draw_model(&vertices, world, view, proj, view_position, light);
     // }
 
-    pub fn load_model(&mut self, vertices: &[f32]) -> (u32, u32, i32) {
+    pub fn load_model(&mut self, vertices: &[f32]) -> (u32, i32) {
         // TODO there is no "unload_model" right now because this is meant to be run once for each
         // model, and all the memory can be cleaned up when the program exits.
         let gl = &self.gl;
@@ -511,29 +505,35 @@ impl Graphics {
             gl.BindBuffer(gl::ARRAY_BUFFER, 0);
             gl.BindVertexArray(0);
         }
-        (vao, vbo, vertices.len() as i32)
+        (vao, vertices.len() as i32)
     }
 
-    pub fn draw_model(&self, vao: GLuint, vbo: GLuint, vertex_buffer_length: i32, world: [f32; 16], view: [f32; 16], proj: [f32; 16], view_position: [f32; 3], light: [f32; 15]) {
+    pub fn start_3d(&self) {
+        unsafe {
+            self.gl.UseProgram(self.program);
+        }
+    }
+
+    pub fn draw_model(&self, vao: GLuint, vertex_buffer_length: i32, world: [f32; 16], view: [f32; 16], proj: [f32; 16], view_position: [f32; 3], light: [f32; 15]) {
         let gl = &self.gl;
         unsafe {
-            self.gl.Enable(gl::DEPTH_TEST);
-            self.gl.UseProgram(self.program);
+            gl.Enable(gl::DEPTH_TEST);
+            // gl.UseProgram(self.program);
 
-            self.gl.UniformMatrix4fv(self.uniforms.world, 1, gl::FALSE, world.as_ptr());
-            self.gl.UniformMatrix4fv(self.uniforms.view, 1, gl::FALSE, view.as_ptr());
-            self.gl.UniformMatrix4fv(self.uniforms.proj, 1, gl::FALSE, proj.as_ptr());
-            self.gl.Uniform3f(self.uniforms.view_position, view_position[0], view_position[1], view_position[2]);
-            self.gl.Uniform3f(self.uniforms.light_position, light[0], light[1], light[2]);
-            self.gl.Uniform3f(self.uniforms.light_direction, light[3], light[4], light[5]);
-            self.gl.Uniform3f(self.uniforms.light_ambient, light[6], light[7], light[8]);
-            self.gl.Uniform3f(self.uniforms.light_diffuse, light[9], light[10], light[11]);
-            self.gl.Uniform3f(self.uniforms.light_specular, light[12], light[13], light[14]);
+            gl.UniformMatrix4fv(self.uniforms.world, 1, gl::FALSE, world.as_ptr());
+            gl.UniformMatrix4fv(self.uniforms.view, 1, gl::FALSE, view.as_ptr());
+            gl.UniformMatrix4fv(self.uniforms.proj, 1, gl::FALSE, proj.as_ptr());
+            gl.Uniform3f(self.uniforms.view_position, view_position[0], view_position[1], view_position[2]);
+            gl.Uniform3f(self.uniforms.light_position, light[0], light[1], light[2]);
+            gl.Uniform3f(self.uniforms.light_direction, light[3], light[4], light[5]);
+            gl.Uniform3f(self.uniforms.light_ambient, light[6], light[7], light[8]);
+            gl.Uniform3f(self.uniforms.light_diffuse, light[9], light[10], light[11]);
+            gl.Uniform3f(self.uniforms.light_specular, light[12], light[13], light[14]);
 
-            self.gl.BindVertexArray(vao);
-            self.gl.DrawArrays(gl::TRIANGLES, 0, vertex_buffer_length as GLsizei);
-            self.gl.BindVertexArray(0);
-            self.gl.Disable(gl::DEPTH_TEST);
+            gl.BindVertexArray(vao);
+            gl.DrawArrays(gl::TRIANGLES, 0, vertex_buffer_length as GLsizei);
+            // gl.BindVertexArray(0);
+            gl.Disable(gl::DEPTH_TEST);
         }
     }
 }

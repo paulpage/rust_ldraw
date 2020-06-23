@@ -180,6 +180,8 @@ impl<'a> Font {
 
         // Load the texture from the buffer
         let (program, uniform, id) = unsafe {
+            gl.BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+
             let mut id: u32 = 0;
             gl.GenTextures(1, &mut id);
             gl.ActiveTexture(gl::TEXTURE0);
@@ -340,7 +342,7 @@ pub fn init(
         gl.DepthFunc(gl::LESS);
         gl.Disable(gl::CULL_FACE);
         gl.Enable(gl::BLEND);
-        gl.BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+        gl.BlendFunc(gl::ONE, gl::ONE_MINUS_SRC_ALPHA);
 
         gl.Viewport(0, 0, window_width, window_height);
     }
@@ -518,6 +520,7 @@ impl Graphics {
         let gl = &self.gl;
         unsafe {
             gl.Enable(gl::DEPTH_TEST);
+            gl.BlendFunc(gl::ONE, gl::ONE_MINUS_SRC_ALPHA);
             // gl.UseProgram(self.program);
 
             gl.UniformMatrix4fv(self.uniforms.world, 1, gl::FALSE, world.as_ptr());

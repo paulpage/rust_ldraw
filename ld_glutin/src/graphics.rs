@@ -1,5 +1,6 @@
 use std::ffi::CString;
 use std::{ptr, mem};
+use cgmath::{Matrix4, Vector2, Deg, Vector3, Point3, SquareMatrix, Vector4};
 use glutin::{self, PossiblyCurrent};
 use self::gl::types::*;
 use rusttype::{point, Scale};
@@ -90,7 +91,7 @@ void main() {
 }
 \0";
 
-const VS_SRC_TEXT: &[u8] = b"
+const VS_SRC_2D_TEXTURE: &[u8] = b"
 #version 330 core
 
 layout (location = 0) in vec2 position;
@@ -107,7 +108,7 @@ void main() {
 }
 \0";
 
-const FS_SRC_TEXT: &[u8] = b"
+const FS_SRC_2D_TEXTURE: &[u8] = b"
 #version 330 core
 
 uniform sampler2D tex;
@@ -120,6 +121,71 @@ void main() {
 }
 \0";
 
+pub struct Camera {
+    pub focus: Point3<f32>,
+    pub distance: f32,
+    pub rot_horizontal: f32,
+    pub rot_vertical: f32,
+    pub fovy: f32,
+}
+
+impl Camera {
+    pub fn new() -> Self {
+        Self {
+            focus: Point3::new(0.0, 0.0, 0.0),
+            distance: 10.0,
+            rot_horizontal: 0.5,
+            rot_vertical: 0.5,
+            fovy: 45.0,
+        }
+    }
+
+    pub fn rotate(&mut self, horizontal: f32, vertical: f32) {
+        self.rot_horizontal += horizontal;
+        self.rot_vertical += vertical;
+        if self.rot_vertical < 0.001 {
+            self.rot_vertical = 0.001;
+        }
+        if self.rot_vertical > std::f32::consts::PI {
+            self.rot_vertical = std::f32::consts::PI - 0.001;
+        }
+    }
+
+    pub fn position(&self) -> Point3<f32> {
+        Point3::new(
+            self.focus.z + self.distance * self.rot_vertical.sin() * self.rot_horizontal.sin(),
+            self.focus.y + self.distance * self.rot_vertical.cos(),
+            self.focus.x + self.distance * self.rot_vertical.sin() * self.rot_horizontal.cos()
+        )
+    }
+}
+
+pub struct Model {
+    pub vao: u32,
+    pub vertex_buffer_length: i32,
+    pub position: Vector3<i32>,
+    pub rotation: Vector3<i32>,
+    pub transform: Matrix4<f32>,
+    pub position_offset: Vector3<f32>,
+    pub rotation_offset: Vector3<f32>,
+    pub bounding_box: BoundingBox,
+}
+
+impl Model {
+    pub fn set_transform(&mut self) {
+        let position = Vector3::new(self.position.x as f32 * 0.5, self.position.y as f32 * 0.2, self.position.z as f32 * 0.5);
+        self.transform = Matrix4::from_translation(position - self.position_offset)
+            * Matrix4::from_angle_x(Deg((self.rotation.x * 90) as f32 - self.rotation_offset.x))
+            * Matrix4::from_angle_y(Deg((self.rotation.y * 90) as f32 - self.rotation_offset.y))
+            * Matrix4::from_angle_z(Deg((self.rotation.z * 90) as f32 - self.rotation_offset.z))
+    }
+}
+
+pub struct BoundingBox {
+    pub min: Point3<f32>,
+    pub max: Point3<f32>,
+}
+
 pub struct Uniforms {
     world: GLint,
     view: GLint,
@@ -130,6 +196,21 @@ pub struct Uniforms {
     light_ambient: GLint,
     light_diffuse: GLint,
     light_specular: GLint,
+}
+
+fn unproject(source: Vector3<f32>, view: Matrix4<f32>, proj: Matrix4<f32>) -> Vector3<f32> {
+    let view_proj = (proj * view).invert().unwrap();
+    let q = view_proj * Vector4::new(source.x, source.y, source.z, 1.0);
+    Vector3::new(q.x / q.w, q.y / q.w, q.z / q.w)
+}
+
+fn get_mouse_ray(aspect_ratio: f32, mouse_position: Vector2<f32>, camera: &Camera) -> (Point3<f32>, Vector3<f32>) {
+    let view = Matrix4::look_at(camera.position(), camera.focus, Vector3::new(0.0, 1.0, 0.0));
+    let proj = cgmath::perspective(Deg(camera.fovy), aspect_ratio, 0.01, 100.0);
+    let near = unproject(Vector3::new(mouse_position.x, mouse_position.y, 0.0), view, proj);
+    let far = unproject(Vector3::new(mouse_position.x, mouse_position.y, 1.0), view, proj);
+    let direction = far - near;
+    (camera.position(), direction)
 }
 
 pub struct Font {
@@ -204,7 +285,7 @@ impl<'a> Font {
                 gl::FLOAT,
                 buffer.as_ptr() as *const _
             );
-            let program = create_program(gl, VS_SRC_TEXT, FS_SRC_TEXT);
+            let program = create_program(gl, VS_SRC_2D_TEXTURE, FS_SRC_2D_TEXTURE);
             let uniform = gl.GetUniformLocation(program, b"tex\0".as_ptr() as *const _);
             (program, uniform, id)
         };

@@ -6,7 +6,7 @@ use cgmath::{Matrix4, Vector2, Deg, Vector3, Point3, SquareMatrix, Vector4};
 use std::time::Instant;
 
 mod graphics;
-use graphics::Graphics;
+use graphics::{BoundingBox, Camera, Graphics, Model};
 
 mod parser;
 use parser::Parser;
@@ -17,71 +17,6 @@ fn fmin(a: f32, b: f32) -> f32 {
 
 fn fmax(a: f32, b: f32) -> f32 {
     if b > a { b } else { a }
-}
-
-struct Camera {
-    focus: Point3<f32>,
-    distance: f32,
-    rot_horizontal: f32,
-    rot_vertical: f32,
-    fovy: f32,
-}
-
-impl Camera {
-    fn new() -> Self {
-        Self {
-            focus: Point3::new(0.0, 0.0, 0.0),
-            distance: 10.0,
-            rot_horizontal: 0.5,
-            rot_vertical: 0.5,
-            fovy: 45.0,
-        }
-    }
-
-    fn rotate(&mut self, horizontal: f32, vertical: f32) {
-        self.rot_horizontal += horizontal;
-        self.rot_vertical += vertical;
-        if self.rot_vertical < 0.001 {
-            self.rot_vertical = 0.001;
-        }
-        if self.rot_vertical > std::f32::consts::PI {
-            self.rot_vertical = std::f32::consts::PI - 0.001;
-        }
-    }
-
-    fn position(&self) -> Point3<f32> {
-        Point3::new(
-            self.focus.z + self.distance * self.rot_vertical.sin() * self.rot_horizontal.sin(),
-            self.focus.y + self.distance * self.rot_vertical.cos(),
-            self.focus.x + self.distance * self.rot_vertical.sin() * self.rot_horizontal.cos()
-        )
-    }
-}
-
-struct Model {
-    vao: u32,
-    vertex_buffer_length: i32,
-    position: Vector3<i32>,
-    rotation: Vector3<i32>,
-    transform: Matrix4<f32>,
-    position_offset: Vector3<f32>,
-    rotation_offset: Vector3<f32>,
-    bounding_box: BoundingBox,
-}
-
-impl Model {
-    fn set_transform(&mut self) {
-        let position = Vector3::new(self.position.x as f32 * 0.5, self.position.y as f32 * 0.2, self.position.z as f32 * 0.5);
-        self.transform = Matrix4::from_translation(position - self.position_offset)
-            * Matrix4::from_angle_x(Deg((self.rotation.x * 90) as f32 - self.rotation_offset.x))
-            * Matrix4::from_angle_y(Deg((self.rotation.y * 90) as f32 - self.rotation_offset.y))
-            * Matrix4::from_angle_z(Deg((self.rotation.z * 90) as f32 - self.rotation_offset.z))
-    }
-}
-
-struct BoundingBox {
-    min: Point3<f32>,
-    max: Point3<f32>,
 }
 
 struct State {
@@ -112,21 +47,6 @@ impl State {
             active_model_idx: 0,
         }
     }
-}
-
-fn unproject(source: Vector3<f32>, view: Matrix4<f32>, proj: Matrix4<f32>) -> Vector3<f32> {
-    let view_proj = (proj * view).invert().unwrap();
-    let q = view_proj * Vector4::new(source.x, source.y, source.z, 1.0);
-    Vector3::new(q.x / q.w, q.y / q.w, q.z / q.w)
-}
-
-fn get_mouse_ray(state: &State, mouse_position: Vector2<f32>, camera: &Camera) -> (Point3<f32>, Vector3<f32>) {
-    let view = Matrix4::look_at(camera.position(), camera.focus, Vector3::new(0.0, 1.0, 0.0));
-    let proj = cgmath::perspective(Deg(camera.fovy), state.aspect_ratio, 0.01, 100.0);
-    let near = unproject(Vector3::new(mouse_position.x, mouse_position.y, 0.0), view, proj);
-    let far = unproject(Vector3::new(mouse_position.x, mouse_position.y, 1.0), view, proj);
-    let direction = far - near;
-    (camera.position(), direction)
 }
 
 fn get_global_transforms(state: &State) -> (Matrix4<f32>, Matrix4<f32>) {
@@ -239,7 +159,7 @@ fn main() {
     for x in 0..20 {
         for y in 0..20 {
             for z in 0..20 {
-                let mut model = load_ldraw_file(&mut gl, &mut parser, "3005.dat", Some([1.0, 0.0, 0.0, 1.0]));
+                let mut model = load_ldraw_file(&mut gl, &mut parser, "3005.dat", Some([1.0, 0.0, 0.0, 0.5]));
                 model.position = new_position;
                 new_position.x = x;
                 new_position.y = y * 3;
@@ -250,7 +170,7 @@ fn main() {
         }
     }
 
-    let font = graphics::Font::from_ttf_data(include_bytes!("../data/LiberationSans-Regular.ttf"));
+    let font = graphics::Font::from_ttf_data(include_bytes!("/usr/share/fonts/noto/NotoSans-Medium.ttf"));
 
     let mut new_brick_position = Vector3::new(2, 2, 2);
 

@@ -11,6 +11,9 @@ use graphics::{BoundingBox, Camera, Graphics, Model};
 mod parser;
 use parser::Parser;
 
+mod input;
+use input::InputState;
+
 fn fmin(a: f32, b: f32) -> f32 {
     if b < a { b } else { a }
 }
@@ -22,13 +25,6 @@ fn fmax(a: f32, b: f32) -> f32 {
 struct State {
     camera: Camera,
     aspect_ratio: f32,
-    up_pressed: bool,
-    down_pressed: bool,
-    left_pressed: bool,
-    right_pressed: bool,
-    mouse_x: f32,
-    mouse_y: f32,
-    middle_pressed: bool,
     active_model_idx: usize,
 }
 
@@ -37,13 +33,6 @@ impl State {
         Self {
             aspect_ratio: 1.0,
             camera: Camera::new(),
-            up_pressed: false,
-            down_pressed: false,
-            left_pressed: false,
-            right_pressed: false,
-            mouse_x: 0.0,
-            mouse_y: 0.0,
-            middle_pressed: false,
             active_model_idx: 0,
         }
     }
@@ -136,6 +125,7 @@ fn main() {
     let windowed_context = unsafe { windowed_context.make_current().unwrap() };
 
     let mut state = State::new();
+    let mut input_state = InputState::new();
     let mut models = Vec::new();
 
     let start = Instant::now();
@@ -177,19 +167,21 @@ fn main() {
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
 
-        if state.left_pressed {
+        input_state.update(&event);
+
+        if input_state.key_down(VirtualKeyCode::A) {
             state.camera.rot_horizontal += 0.02;
         }
-        if state.right_pressed {
+        if input_state.key_down(VirtualKeyCode::D) {
             state.camera.rot_horizontal -= 0.02;
         }
-        if state.up_pressed {
+        if input_state.key_down(VirtualKeyCode::W) {
             state.camera.rot_vertical -= 0.02;
             if state.camera.rot_vertical < 0.001 {
                 state.camera.rot_vertical = 0.001;
             }
         }
-        if state.down_pressed {
+        if input_state.key_down(VirtualKeyCode::S) {
             state.camera.rot_vertical += 0.02;
             if state.camera.rot_vertical > std::f32::consts::PI {
                 state.camera.rot_vertical = std::f32::consts::PI - 0.001;
@@ -213,10 +205,10 @@ fn main() {
                 WindowEvent::KeyboardInput { input, .. } => {
                     let pressed = input.state == ElementState::Pressed;
                     match input.virtual_keycode {
-                        Some(VirtualKeyCode::A) => state.left_pressed = pressed,
-                        Some(VirtualKeyCode::D) => state.right_pressed = pressed,
-                        Some(VirtualKeyCode::W) => state.up_pressed = pressed,
-                        Some(VirtualKeyCode::S) => state.down_pressed = pressed,
+                        // Some(VirtualKeyCode::A) => state.left_pressed = pressed,
+                        // Some(VirtualKeyCode::D) => state.right_pressed = pressed,
+                        // Some(VirtualKeyCode::W) => state.up_pressed = pressed,
+                        // Some(VirtualKeyCode::S) => state.down_pressed = pressed,
                         Some(VirtualKeyCode::T) => {
                             if pressed {
                                 let mut model = load_ldraw_file(&mut gl, &mut parser, "3005.dat", Some([1.0, 0.0, 0.0, 1.0]));
@@ -248,21 +240,19 @@ fn main() {
                         }
                     }
                 }
-                WindowEvent::MouseInput { button, state: mouse_state, .. } => {
-                    let pressed = mouse_state == ElementState::Pressed;
-                    match button {
-                        MouseButton::Middle => state.middle_pressed = pressed,
-                        _ => {}
-                    }
-                }
+                // WindowEvent::MouseInput { button, state: mouse_state, .. } => {
+                //     let pressed = mouse_state == ElementState::Pressed;
+                //     match button {
+                //         MouseButton::Middle => state.middle_pressed = pressed,
+                //         _ => {}
+                //     }
+                // }
                 WindowEvent::CursorMoved { position, .. } => {
-                    let dx = position.x as f32 - state.mouse_x;
-                    let dy = position.y as f32 - state.mouse_y;
-                    if state.middle_pressed {
+                    let dx = input_state.mouse_delta_x as f32;
+                    let dy = input_state.mouse_delta_y as f32;
+                    if input_state.mouse_middle_down {
                         state.camera.rotate(dx * -0.005, dy * -0.005);
                     }
-                    state.mouse_x = position.x as f32;
-                    state.mouse_y = position.y as f32;
                 }
                 _ => (),
             },

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use glutin::event::{Event, WindowEvent, VirtualKeyCode, ElementState, MouseScrollDelta, MouseButton};
+use glutin::event::{Event, WindowEvent, VirtualKeyCode, ElementState, MouseButton};
 
 pub struct InputState {
     pub mouse_left_down: bool,

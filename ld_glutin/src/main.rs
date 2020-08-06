@@ -1,8 +1,9 @@
-use glutin::event::{Event, WindowEvent, VirtualKeyCode, ElementState, MouseScrollDelta, MouseButton};
+use glutin::event::{Event, WindowEvent, ElementState, MouseScrollDelta};
+use glutin::event::VirtualKeyCode as Key;
 use glutin::event_loop::{ControlFlow, EventLoop};
 use glutin::window::WindowBuilder;
 use glutin::ContextBuilder;
-use cgmath::{Matrix4, Vector2, Deg, Vector3, Point3, SquareMatrix, Vector4};
+use cgmath::{Matrix4, Deg, Vector3, Point3, SquareMatrix};
 use std::time::Instant;
 
 mod graphics;
@@ -160,7 +161,7 @@ fn main() {
         }
     }
 
-    let font = graphics::Font::from_ttf_data(include_bytes!("/usr/share/fonts/noto/NotoSans-Medium.ttf"));
+    // let font = graphics::Font::from_ttf_data(include_bytes!("/usr/share/fonts/TTF/DejaVuSans.ttf"));
 
     let mut new_brick_position = Vector3::new(2, 2, 2);
 
@@ -169,19 +170,19 @@ fn main() {
 
         input_state.update(&event);
 
-        if input_state.key_down(VirtualKeyCode::A) {
+        if input_state.key_down(Key::A) {
             state.camera.rot_horizontal += 0.02;
         }
-        if input_state.key_down(VirtualKeyCode::D) {
+        if input_state.key_down(Key::D) {
             state.camera.rot_horizontal -= 0.02;
         }
-        if input_state.key_down(VirtualKeyCode::W) {
+        if input_state.key_down(Key::W) {
             state.camera.rot_vertical -= 0.02;
             if state.camera.rot_vertical < 0.001 {
                 state.camera.rot_vertical = 0.001;
             }
         }
-        if input_state.key_down(VirtualKeyCode::S) {
+        if input_state.key_down(Key::S) {
             state.camera.rot_vertical += 0.02;
             if state.camera.rot_vertical > std::f32::consts::PI {
                 state.camera.rot_vertical = std::f32::consts::PI - 0.001;
@@ -209,7 +210,7 @@ fn main() {
                         // Some(VirtualKeyCode::D) => state.right_pressed = pressed,
                         // Some(VirtualKeyCode::W) => state.up_pressed = pressed,
                         // Some(VirtualKeyCode::S) => state.down_pressed = pressed,
-                        Some(VirtualKeyCode::T) => {
+                        Some(Key::T) => {
                             if pressed {
                                 let mut model = load_ldraw_file(&mut gl, &mut parser, "3005.dat", Some([1.0, 0.0, 0.0, 1.0]));
                                 model.position = new_brick_position;
@@ -220,7 +221,7 @@ fn main() {
                                 state.active_model_idx = models.len() - 1;
                             }
                         }
-                        Some(VirtualKeyCode::R) => {
+                        Some(Key::R) => {
                             if pressed {
                                 models[state.active_model_idx].rotation.y += 1;
                                 models[state.active_model_idx].rotation_offset.y = 90.0;
@@ -284,12 +285,10 @@ fn main() {
                         model.set_transform();
                     }
                 }
-                font.draw_text(
-                    &gl.gl,
-                    gl.window_width,
-                    gl.window_height,
+                gl.draw_rect(0, 0, 100, 100, [0.0, 0.0, 0.0, 1.0]);
+                gl.draw_text(
                     &format!("Frame time: {}", start.elapsed().as_millis()),
-                    -0.5, 0.0, 256.0, [1.0, 0.0, 0.5, 1.0]);
+                    20, 20, 256.0, [1.0, 0.0, 0.5, 1.0]);
                 windowed_context.swap_buffers().unwrap();
             },
             _ => (),

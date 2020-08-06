@@ -213,129 +213,6 @@ fn get_mouse_ray(aspect_ratio: f32, mouse_position: Vector2<f32>, camera: &Camer
     (camera.position(), direction)
 }
 
-pub struct Font {
-    font: rusttype::Font<'static>,
-}
-
-impl<'a> Font {
-    pub fn from_ttf_data(data: &'static [u8]) -> Self {
-        Self {
-            font: rusttype::Font::try_from_bytes(data as &[u8]).unwrap()
-        }
-    }
-
-    pub fn draw_text(&self, gl: &gl::Gl, window_width: i32, window_height: i32, text: &str, x: f32, y: f32, scale: f32, color: [f32; 4]) {
-
-        // Draw the font data into a buffer
-        let font_scale = Scale::uniform(scale);
-        let v_metrics = self.font.v_metrics(font_scale);
-        let glyphs: Vec<_> = self.font
-            .layout(text, font_scale, point(x, y + v_metrics.ascent))
-            .collect();
-
-        let glyphs_height = (v_metrics.ascent - v_metrics.descent).ceil() as usize;
-        let glyphs_width = glyphs
-            .iter()
-            .rev()
-            .map(|g| g.position().x as f32 + g.unpositioned().h_metrics().advance_width)
-            .next()
-            .unwrap_or(0.0)
-            .ceil() as usize;
-
-        let mut buffer: Vec<f32> = vec![0.0; glyphs_width * glyphs_height];
-
-        for glyph in glyphs {
-            if let Some(bounding_box) = glyph.pixel_bounding_box() {
-
-                let min_x = bounding_box.min.x as usize;
-                let min_y = bounding_box.min.y as usize;
-
-                glyph.draw(|x, y, v| {
-                    let x = x as usize + min_x - 1;
-                    let y = y as usize + min_y - 1;
-                    let index = y * glyphs_width + x;
-                    buffer[index] = v;
-                });
-            }
-        }
-
-        // Load the texture from the buffer
-        let (program, uniform, id) = unsafe {
-            gl.BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
-
-            let mut id: u32 = 0;
-            gl.GenTextures(1, &mut id);
-            gl.ActiveTexture(gl::TEXTURE0);
-            gl.BindTexture(gl::TEXTURE_2D, id);
-
-            // TODO Decide what these should be.
-            gl.TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as GLint);
-            gl.TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as GLint);
-            gl.TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as GLint);
-            gl.TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as GLint);
-
-            gl.TexImage2D(
-                gl::TEXTURE_2D,
-                0,
-                gl::RED as GLint,
-                glyphs_width as GLint,
-                glyphs_height as GLint,
-                0,
-                gl::RED,
-                gl::FLOAT,
-                buffer.as_ptr() as *const _
-            );
-            let program = create_program(gl, VS_SRC_2D_TEXTURE, FS_SRC_2D_TEXTURE);
-            let uniform = gl.GetUniformLocation(program, b"tex\0".as_ptr() as *const _);
-            (program, uniform, id)
-        };
-
-        let height = glyphs_height as f32 * 2.0 / window_height as f32;
-        let width = glyphs_width as f32 / window_width as f32;
-        let vertices = [
-            x, y, 0.0, 1.0, color[0], color[1], color[2], color[3],
-            x + width, y, 1.0, 1.0, color[0], color[1], color[2], color[3],
-            x + width, y + height, 1.0, 0.0, color[0], color[1], color[2], color[3],
-            x, y, 0.0, 1.0, color[0], color[1], color[2], color[3],
-            x + width, y + height, 1.0, 0.0, color[0], color[1], color[2], color[3],
-            x, y + height, 0.0, 0.0, color[0], color[1], color[2], color[3],
-        ];
-
-        let (mut vao, mut vbo) = (0, 0);
-        unsafe {
-            gl.GenVertexArrays(1, &mut vao);
-            gl.GenBuffers(1, &mut vbo);
-            gl.BindBuffer(gl::ARRAY_BUFFER, vbo);
-            gl.BufferData(
-                gl::ARRAY_BUFFER,
-                (vertices.len() * mem::size_of::<GLfloat>()) as GLsizeiptr,
-                vertices.as_ptr() as *const _,
-                gl::STATIC_DRAW
-            );
-            gl.BindVertexArray(vao);
-            let stride = 8 * mem::size_of::<GLfloat>() as GLsizei;
-
-            gl.ActiveTexture(gl::TEXTURE0);
-            gl.BindTexture(gl::TEXTURE_2D, id);
-            gl.Uniform1i(uniform, 0);
-
-            gl.EnableVertexAttribArray(0);
-            gl.VertexAttribPointer(0, 2, gl::FLOAT, gl::FALSE, stride, ptr::null());
-            gl.EnableVertexAttribArray(1);
-            gl.VertexAttribPointer(1, 2, gl::FLOAT, gl::FALSE, stride, (2 * mem::size_of::<GLfloat>()) as *const _);
-            gl.EnableVertexAttribArray(2);
-            gl.VertexAttribPointer(2, 4, gl::FLOAT, gl::FALSE, stride, (4 * mem::size_of::<GLfloat>()) as *const _);
-
-            gl.UseProgram(program);
-
-            gl.DrawArrays(gl::TRIANGLES, 0, vertices.len() as GLsizei);
-
-            gl.BindBuffer(gl::ARRAY_BUFFER, 0);
-            gl.BindVertexArray(0);
-        }
-    }
-}
-
 pub mod gl {
     pub use self::Gles2 as Gl;
     include!(concat!(env!("OUT_DIR"), "/gl_bindings.rs"));
@@ -348,6 +225,7 @@ pub struct Graphics {
     program_2d: u32,
     pub gl: gl::Gl,
     uniforms: Uniforms,
+    font: rusttype::Font<'static>,
 }
 
 fn create_shader(gl: &gl::Gl, shader_type: u32, source: &'static [u8]) -> u32 {
@@ -417,6 +295,7 @@ pub fn init(
 ) -> Graphics {
 
     let gl = gl::Gl::load_with(|ptr| gl_context.get_proc_address(ptr) as *const _);
+    let font = rusttype::Font::try_from_bytes(include_bytes!("/usr/share/fonts/TTF/DejaVuSans.ttf") as &[u8]).unwrap();
 
     unsafe {
         gl.Enable(gl::DEPTH_TEST);
@@ -451,6 +330,7 @@ pub fn init(
         program_2d,
         gl,
         uniforms,
+        font,
     }
 }
 
@@ -463,8 +343,14 @@ impl Graphics {
         }
     }
 
-    pub fn draw_rect(&self, x: f32, y: f32, width: f32, height: f32, color: [f32; 4]) {
+    pub fn draw_rect(&self, x: i32, y: i32, width: i32, height: i32, color: [f32; 4]) {
         let gl = &self.gl;
+
+        let x = x as f32 * 2.0 / self.window_width as f32 - 1.0;
+        let y = 1.0 - y as f32 * 2.0 / self.window_height as f32;
+        let width = width as f32 * 2.0 / self.window_width as f32;
+        let height = -1.0 * height as f32 * 2.0 / self.window_height as f32;
+
         let (mut vao_2d, mut vbo_2d) = (0, 0);
         let vertices = [
             x, y, color[0], color[1], color[2], color[3],
@@ -472,10 +358,9 @@ impl Graphics {
             x + width, y + height, color[0], color[0], color[2], color[3],
             x, y, color[0], color[1], color[2], color[3],
             x + width, y + height, color[0], color[0], color[2], color[3],
-            x, y + width, color[0], color[0], color[2], color[3], 
+            x, y + height, color[0], color[0], color[2], color[3], 
         ];
         unsafe {
-
             gl.Enable(gl::DEPTH_TEST);
 
             gl.GenVertexArrays(1, &mut vao_2d);
@@ -618,6 +503,121 @@ impl Graphics {
             gl.DrawArrays(gl::TRIANGLES, 0, vertex_buffer_length as GLsizei);
             // gl.BindVertexArray(0);
             gl.Disable(gl::DEPTH_TEST);
+        }
+    }
+
+    pub fn draw_text(&self, text: &str, x: i32, y: i32, scale: f32, color: [f32; 4]) {
+        let gl = &self.gl;
+
+        let x = x as f32 * 2.0 / self.window_width as f32 - 1.0;
+        let y = y as f32 * 2.0 / self.window_height as f32 - 1.0;
+
+        // Draw the font data into a buffer
+        let font_scale = Scale::uniform(scale);
+        let v_metrics = self.font.v_metrics(font_scale);
+        let glyphs: Vec<_> = self.font
+            .layout(text, font_scale, point(x, y + v_metrics.ascent))
+            .collect();
+
+        let glyphs_height = (v_metrics.ascent - v_metrics.descent).ceil() as usize;
+        let glyphs_width = glyphs
+            .iter()
+            .rev()
+            .map(|g| g.position().x as f32 + g.unpositioned().h_metrics().advance_width)
+            .next()
+            .unwrap_or(0.0)
+            .ceil() as usize;
+
+        let mut buffer: Vec<f32> = vec![0.0; glyphs_width * glyphs_height];
+
+        for glyph in glyphs {
+            if let Some(bounding_box) = glyph.pixel_bounding_box() {
+
+                let min_x = bounding_box.min.x as usize;
+                let min_y = bounding_box.min.y as usize;
+
+                glyph.draw(|x, y, v| {
+                    let x = x as usize + min_x - 1;
+                    let y = y as usize + min_y - 1;
+                    let index = y * glyphs_width + x;
+                    buffer[index] = v;
+                });
+            }
+        }
+
+        // Load the texture from the buffer
+        let (program, uniform, id) = unsafe {
+            gl.BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+
+            let mut id: u32 = 0;
+            gl.GenTextures(1, &mut id);
+            gl.ActiveTexture(gl::TEXTURE0);
+            gl.BindTexture(gl::TEXTURE_2D, id);
+
+            // TODO Decide what these should be.
+            gl.TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as GLint);
+            gl.TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as GLint);
+            gl.TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as GLint);
+            gl.TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as GLint);
+
+            gl.TexImage2D(
+                gl::TEXTURE_2D,
+                0,
+                gl::RED as GLint,
+                glyphs_width as GLint,
+                glyphs_height as GLint,
+                0,
+                gl::RED,
+                gl::FLOAT,
+                buffer.as_ptr() as *const _
+            );
+            let program = create_program(gl, VS_SRC_2D_TEXTURE, FS_SRC_2D_TEXTURE);
+            let uniform = gl.GetUniformLocation(program, b"tex\0".as_ptr() as *const _);
+            (program, uniform, id)
+        };
+
+        let height = glyphs_height as f32 * 2.0 / self.window_height as f32;
+        let width = glyphs_width as f32 / self.window_width as f32;
+        let vertices = [
+            x, y, 0.0, 1.0, color[0], color[1], color[2], color[3],
+            x + width, y, 1.0, 1.0, color[0], color[1], color[2], color[3],
+            x + width, y + height, 1.0, 0.0, color[0], color[1], color[2], color[3],
+            x, y, 0.0, 1.0, color[0], color[1], color[2], color[3],
+            x + width, y + height, 1.0, 0.0, color[0], color[1], color[2], color[3],
+            x, y + height, 0.0, 0.0, color[0], color[1], color[2], color[3],
+        ];
+
+        let (mut vao, mut vbo) = (0, 0);
+        unsafe {
+            gl.GenVertexArrays(1, &mut vao);
+            gl.GenBuffers(1, &mut vbo);
+            gl.BindBuffer(gl::ARRAY_BUFFER, vbo);
+            gl.BufferData(
+                gl::ARRAY_BUFFER,
+                (vertices.len() * mem::size_of::<GLfloat>()) as GLsizeiptr,
+                vertices.as_ptr() as *const _,
+                gl::STATIC_DRAW
+            );
+            gl.BindVertexArray(vao);
+            let stride = 8 * mem::size_of::<GLfloat>() as GLsizei;
+
+            gl.ActiveTexture(gl::TEXTURE0);
+            gl.BindTexture(gl::TEXTURE_2D, id);
+            gl.Uniform1i(uniform, 0);
+
+            gl.EnableVertexAttribArray(0);
+            gl.VertexAttribPointer(0, 2, gl::FLOAT, gl::FALSE, stride, ptr::null());
+            gl.EnableVertexAttribArray(1);
+            gl.VertexAttribPointer(1, 2, gl::FLOAT, gl::FALSE, stride, (2 * mem::size_of::<GLfloat>()) as *const _);
+            gl.EnableVertexAttribArray(2);
+            gl.VertexAttribPointer(2, 4, gl::FLOAT, gl::FALSE, stride, (4 * mem::size_of::<GLfloat>()) as *const _);
+
+            gl.UseProgram(program);
+
+            gl.DrawArrays(gl::TRIANGLES, 0, vertices.len() as GLsizei);
+
+            gl.BindBuffer(gl::ARRAY_BUFFER, 0);
+            gl.BindVertexArray(0);
         }
     }
 }

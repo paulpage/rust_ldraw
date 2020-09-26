@@ -1,9 +1,18 @@
+#![allow(dead_code)]
+
+use glutin::window::WindowBuilder;
+use glutin::dpi::PhysicalSize;
+use glutin::window::Window;
+use glutin::ContextBuilder;
+use glutin::event_loop::EventLoop;
 use std::ffi::CString;
 use std::{ptr, mem};
 use cgmath::{Matrix4, Vector2, Deg, Vector3, Point3, SquareMatrix, Vector4};
 use glutin::{self, PossiblyCurrent};
 use self::gl::types::*;
-use rusttype::{point, Scale};
+use rusttype::{point, Scale, PositionedGlyph};
+
+use super::util::{Rect, Color};
 
 const VS_SRC_2D: &[u8] = b"
 #version 330 core
@@ -91,7 +100,7 @@ void main() {
 }
 \0";
 
-const VS_SRC_2D_TEXTURE: &[u8] = b"
+const VS_SRC_TEXT: &[u8] = b"
 #version 330 core
 
 layout (location = 0) in vec2 position;
@@ -108,7 +117,7 @@ void main() {
 }
 \0";
 
-const FS_SRC_2D_TEXTURE: &[u8] = b"
+const FS_SRC_TEXT: &[u8] = b"
 #version 330 core
 
 uniform sampler2D tex;
@@ -118,6 +127,32 @@ out vec4 f_color;
 
 void main() {
     f_color = v_color * vec4(1.0, 1.0, 1.0, texture(tex, v_tex_coords).r);
+}
+\0";
+
+const VS_SRC_2D_TEXTURE: &[u8] = b"
+#version 330 core
+
+layout (location = 0) in vec2 position;
+layout (location = 1) in vec2 tex_coords;
+
+out vec2 v_tex_coords;
+
+void main() {
+    gl_Position = vec4(position, 0.0, 1.0);
+    v_tex_coords = tex_coords;
+}
+\0";
+
+const FS_SRC_2D_TEXTURE: &[u8] = b"
+#version 330 core
+
+uniform sampler2D tex;
+in vec2 v_tex_coords;
+out vec4 f_color;
+
+void main() {
+    f_color = texture(tex, v_tex_coords);
 }
 \0";
 
@@ -219,10 +254,13 @@ pub mod gl {
 }
 
 pub struct Graphics {
+    pub windowed_context: glutin::ContextWrapper<PossiblyCurrent, Window>,
     pub window_width: i32,
     pub window_height: i32,
     program: u32,
     program_2d: u32,
+    program_text: u32,
+    program_texture: u32,
     pub gl: gl::Gl,
     uniforms: Uniforms,
     font: rusttype::Font<'static>,
@@ -289,10 +327,20 @@ fn create_program(
 }
 
 pub fn init(
-    gl_context: &glutin::Context<PossiblyCurrent>,
-    window_width: i32,
-    window_height: i32,
+    event_loop: &EventLoop<()>
 ) -> Graphics {
+
+    let windowed_context = {
+        let window_builder = WindowBuilder::new().with_title("Bricks");
+        let windowed_context =
+            ContextBuilder::new().with_vsync(true).build_windowed(window_builder, event_loop).unwrap();
+        unsafe { windowed_context.make_current().unwrap() }
+    };
+    let gl_context = windowed_context.context();
+    let (window_width, window_height) = {
+        let size = windowed_context.window().inner_size(); 
+        (size.width as i32, size.height as i32)
+    };
 
     let gl = gl::Gl::load_with(|ptr| gl_context.get_proc_address(ptr) as *const _);
     let font = rusttype::Font::try_from_bytes(include_bytes!("../data/LiberationSans-Regular.ttf") as &[u8]).unwrap();
@@ -309,6 +357,8 @@ pub fn init(
 
     let program = create_program(&gl, VS_SRC, FS_SRC);
     let program_2d = create_program(&gl, VS_SRC_2D, FS_SRC_2D);
+    let program_text = create_program(&gl, VS_SRC_TEXT, FS_SRC_TEXT);
+    let program_texture = create_program(&gl, VS_SRC_2D_TEXTURE, FS_SRC_2D_TEXTURE);
 
     let uniforms = unsafe {
         Uniforms {
@@ -324,10 +374,13 @@ pub fn init(
         }
     };
     Graphics {
+        windowed_context,
         window_height,
         window_width,
         program,
         program_2d,
+        program_text,
+        program_texture,
         gl,
         uniforms,
         font,
@@ -336,32 +389,44 @@ pub fn init(
 
 impl Graphics {
 
-    pub fn clear(&self, color: [f32; 4]) {
+    pub fn clear(&self, color: Color) {
         unsafe {
+            let color = [
+                color.r as f32 / 255.0,
+                color.g as f32 / 255.0,
+                color.b as f32 / 255.0,
+                color.a as f32 / 255.0,
+            ];
             self.gl.ClearColor(color[0], color[1], color[2], color[3]);
             self.gl.Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
         }
     }
 
-    pub fn draw_rect(&self, x: i32, y: i32, width: i32, height: i32, color: [f32; 4]) {
+    pub fn draw_rect(&self, rect: Rect, color: Color) {
         let gl = &self.gl;
 
-        let x = x as f32 * 2.0 / self.window_width as f32 - 1.0;
-        let y = 1.0 - y as f32 * 2.0 / self.window_height as f32;
-        let width = width as f32 * 2.0 / self.window_width as f32;
-        let height = -1.0 * height as f32 * 2.0 / self.window_height as f32;
+        let x = rect.x as f32 * 2.0 / self.window_width as f32 - 1.0;
+        let y = 1.0 - rect.y as f32 * 2.0 / self.window_height as f32;
+        let width = rect.width as f32 * 2.0 / self.window_width as f32;
+        let height = -1.0 * rect.height as f32 * 2.0 / self.window_height as f32;
+        let color = [
+            color.r as f32 / 255.0,
+            color.g as f32 / 255.0,
+            color.b as f32 / 255.0,
+            color.a as f32 / 255.0,
+        ];
 
         let (mut vao_2d, mut vbo_2d) = (0, 0);
         let vertices = [
             x, y, color[0], color[1], color[2], color[3],
-            x + width, y, color[0], color[0], color[2], color[3],
-            x + width, y + height, color[0], color[0], color[2], color[3],
+            x + width, y, color[0], color[1], color[2], color[3],
+            x + width, y + height, color[0], color[1], color[2], color[3],
             x, y, color[0], color[1], color[2], color[3],
-            x + width, y + height, color[0], color[0], color[2], color[3],
-            x, y + height, color[0], color[0], color[2], color[3], 
+            x + width, y + height, color[0], color[1], color[2], color[3],
+            x, y + height, color[0], color[1], color[2], color[3], 
         ];
         unsafe {
-            gl.Enable(gl::DEPTH_TEST);
+            gl.Disable(gl::DEPTH_TEST);
 
             gl.GenVertexArrays(1, &mut vao_2d);
             gl.GenBuffers(1, &mut vbo_2d);
@@ -386,6 +451,11 @@ impl Graphics {
             gl.BindBuffer(gl::ARRAY_BUFFER, 0);
             gl.BindVertexArray(0);
         }
+
+        unsafe {
+            gl.DeleteVertexArrays(1, &mut vao_2d);
+            gl.DeleteBuffers(1, &mut vbo_2d);
+        }
     }
 
     // TODO remove this function, figure out what we want to do with drawing 2d
@@ -396,7 +466,9 @@ impl Graphics {
         }
     }
 
-    pub fn set_screen_size(&mut self, x: i32, y: i32) {
+    pub fn resize(&mut self, physical_size: PhysicalSize<u32>) {
+        self.windowed_context.resize(physical_size);
+        let (x, y) = (physical_size.width as i32, physical_size.height as i32);
         unsafe {
             self.gl.Viewport(0, 0, x, y);
         }
@@ -506,39 +578,135 @@ impl Graphics {
         }
     }
 
-    pub fn draw_text(&self, text: &str, x: i32, y: i32, scale: f32, color: [f32; 4]) {
+    pub fn draw_texture(&self, src_rect: Rect, dest_rect: Rect, buffer: Vec<u8>) {
         let gl = &self.gl;
 
-        let x = x as f32 * 2.0 / self.window_width as f32 - 1.0;
-        let y = y as f32 * 2.0 / self.window_height as f32 - 1.0;
+        let x = dest_rect.x as f32 * 2.0 / self.window_width as f32 - 1.0;
+        let y = 1.0 - dest_rect.y as f32 * 2.0 / self.window_height as f32;
+        let src_width = src_rect.width as usize;
+        let src_height = src_rect.height as usize;
 
-        // Draw the font data into a buffer
+        // Load the texture from the buffer
+        let (uniform, mut id) = unsafe {
+            gl.BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+            gl.Disable(gl::DEPTH_TEST);
+
+            let mut id: u32 = 0;
+            gl.GenTextures(1, &mut id);
+            gl.ActiveTexture(gl::TEXTURE0);
+            gl.BindTexture(gl::TEXTURE_2D, id);
+
+            // TODO Decide what these should be.
+            gl.TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as GLint);
+            gl.TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as GLint);
+            gl.TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as GLint);
+            gl.TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as GLint);
+
+            gl.TexImage2D(
+                gl::TEXTURE_2D,
+                0,
+                gl::RGBA as GLint,
+                src_width as GLint,
+                src_height as GLint,
+                0,
+                gl::RGBA,
+                gl::UNSIGNED_BYTE,
+                buffer.as_ptr() as *const _
+            );
+            let uniform = gl.GetUniformLocation(self.program_texture, b"tex\0".as_ptr() as *const _);
+
+            (uniform, id)
+        };
+
+        let dest_width = dest_rect.width as f32 * 2.0 / self.window_width as f32;
+        let dest_height = dest_rect.height as f32 * 2.0 / self.window_height as f32;
+        let y = y - dest_height;
+
+        let vertices = [
+            x, y, 0.0, 1.0,
+            x + dest_width, y, 1.0, 1.0,
+            x + dest_width, y + dest_height, 1.0, 0.0,
+            x, y, 0.0, 1.0,
+            x + dest_width, y + dest_height, 1.0, 0.0,
+            x, y + dest_height, 0.0, 0.0,
+        ];
+
+        let (mut vao, mut vbo) = (0, 0);
+        unsafe {
+            gl.GenVertexArrays(1, &mut vao);
+            gl.GenBuffers(1, &mut vbo);
+            gl.BindBuffer(gl::ARRAY_BUFFER, vbo);
+            gl.BufferData(
+                gl::ARRAY_BUFFER,
+                (vertices.len() * mem::size_of::<GLfloat>()) as GLsizeiptr,
+                vertices.as_ptr() as *const _,
+                gl::STATIC_DRAW
+            );
+            gl.BindVertexArray(vao);
+            let stride = 4 * mem::size_of::<GLfloat>() as GLsizei;
+
+            gl.ActiveTexture(gl::TEXTURE0);
+            gl.BindTexture(gl::TEXTURE_2D, id);
+            gl.Uniform1i(uniform, 0);
+
+            gl.EnableVertexAttribArray(0);
+            gl.VertexAttribPointer(0, 2, gl::FLOAT, gl::FALSE, stride, ptr::null());
+            gl.EnableVertexAttribArray(1);
+            gl.VertexAttribPointer(1, 2, gl::FLOAT, gl::FALSE, stride, (2 * mem::size_of::<GLfloat>()) as *const _);
+
+            gl.UseProgram(self.program_texture);
+
+            gl.DrawArrays(gl::TRIANGLES, 0, vertices.len() as GLsizei);
+
+            gl.BindBuffer(gl::ARRAY_BUFFER, 0);
+            gl.BindVertexArray(0);
+        }
+
+        unsafe {
+            gl.DeleteBuffers(1, &mut vbo);
+            gl.DeleteVertexArrays(1, &mut vao);
+            gl.DeleteTextures(1, &mut id);
+        }
+    }
+
+    pub fn layout_text(&self, text: &str, scale: f32) -> (Vec<PositionedGlyph<'_>>, usize, usize) {
         let font_scale = Scale::uniform(scale);
         let v_metrics = self.font.v_metrics(font_scale);
         let glyphs: Vec<_> = self.font
-            .layout(text, font_scale, point(x, y + v_metrics.ascent))
+            .layout(text, font_scale, point(0.0, 0.0 + v_metrics.ascent))
             .collect();
 
-        let glyphs_height = (v_metrics.ascent - v_metrics.descent).ceil() as usize;
-        let glyphs_width = glyphs
+        let height = (v_metrics.ascent - v_metrics.descent).ceil() as usize;
+        let width = glyphs
             .iter()
             .rev()
             .map(|g| g.position().x as f32 + g.unpositioned().h_metrics().advance_width)
             .next()
             .unwrap_or(0.0)
             .ceil() as usize;
+        (glyphs, width, height)
+    }
 
+    pub fn draw_text(&self, text: &str, x: i32, y: i32, scale: f32, color: Color) -> Rect {
+        let gl = &self.gl;
+
+        // Save the original parameters to return in the rect
+        let input_x = x;
+        let input_y = y;
+
+        let (glyphs, glyphs_width, glyphs_height) = self.layout_text(text, scale);
+        
         let mut buffer: Vec<f32> = vec![0.0; glyphs_width * glyphs_height];
 
         for glyph in glyphs {
             if let Some(bounding_box) = glyph.pixel_bounding_box() {
 
-                let min_x = bounding_box.min.x as usize;
-                let min_y = bounding_box.min.y as usize;
+                let min_x = bounding_box.min.x;
+                let min_y = bounding_box.min.y;
 
                 glyph.draw(|x, y, v| {
-                    let x = x as usize + min_x - 1;
-                    let y = y as usize + min_y - 1;
+                    let x = std::cmp::max(x as i32 + min_x, 1) as usize - 1;
+                    let y = std::cmp::max(y as i32 + min_y, 1) as usize - 1;
                     let index = y * glyphs_width + x;
                     buffer[index] = v;
                 });
@@ -546,8 +714,9 @@ impl Graphics {
         }
 
         // Load the texture from the buffer
-        let (program, uniform, id) = unsafe {
+        let (uniform, mut id) = unsafe {
             gl.BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+            gl.Disable(gl::DEPTH_TEST);
 
             let mut id: u32 = 0;
             gl.GenTextures(1, &mut id);
@@ -571,13 +740,21 @@ impl Graphics {
                 gl::FLOAT,
                 buffer.as_ptr() as *const _
             );
-            let program = create_program(gl, VS_SRC_2D_TEXTURE, FS_SRC_2D_TEXTURE);
-            let uniform = gl.GetUniformLocation(program, b"tex\0".as_ptr() as *const _);
-            (program, uniform, id)
+            let uniform = gl.GetUniformLocation(self.program_text, b"tex\0".as_ptr() as *const _);
+            (uniform, id)
         };
 
+        let x = x as f32 * 2.0 / self.window_width as f32 - 1.0;
+        let y = 1.0 - y as f32 * 2.0 / self.window_height as f32;
         let height = glyphs_height as f32 * 2.0 / self.window_height as f32;
-        let width = glyphs_width as f32 / self.window_width as f32;
+        let width = glyphs_width as f32 * 2.0 / self.window_width as f32;
+        let y = y - height;
+        let color = [
+            color.r as f32 / 255.0,
+            color.g as f32 / 255.0,
+            color.b as f32 / 255.0,
+            color.a as f32 / 255.0,
+        ];
         let vertices = [
             x, y, 0.0, 1.0, color[0], color[1], color[2], color[3],
             x + width, y, 1.0, 1.0, color[0], color[1], color[2], color[3],
@@ -612,12 +789,24 @@ impl Graphics {
             gl.EnableVertexAttribArray(2);
             gl.VertexAttribPointer(2, 4, gl::FLOAT, gl::FALSE, stride, (4 * mem::size_of::<GLfloat>()) as *const _);
 
-            gl.UseProgram(program);
+            gl.UseProgram(self.program_text);
 
             gl.DrawArrays(gl::TRIANGLES, 0, vertices.len() as GLsizei);
 
             gl.BindBuffer(gl::ARRAY_BUFFER, 0);
             gl.BindVertexArray(0);
         }
+
+        unsafe {
+            gl.DeleteBuffers(1, &mut vbo);
+            gl.DeleteVertexArrays(1, &mut vao);
+            gl.DeleteTextures(1, &mut id);
+        }
+
+        Rect::new(input_x, input_y, glyphs_width as u32, glyphs_height as u32)
+    }
+
+    pub fn swap(&mut self) {
+        self.windowed_context.swap_buffers().unwrap();
     }
 }

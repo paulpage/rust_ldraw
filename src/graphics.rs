@@ -295,7 +295,7 @@ pub fn init(
 ) -> Graphics {
 
     let gl = gl::Gl::load_with(|ptr| gl_context.get_proc_address(ptr) as *const _);
-    let font = rusttype::Font::try_from_bytes(include_bytes!("/usr/share/fonts/TTF/DejaVuSans.ttf") as &[u8]).unwrap();
+    let font = rusttype::Font::try_from_bytes(include_bytes!("../data/LiberationSans-Regular.ttf") as &[u8]).unwrap();
 
     unsafe {
         gl.Enable(gl::DEPTH_TEST);

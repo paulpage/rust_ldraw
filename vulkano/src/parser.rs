@@ -4,15 +4,13 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Result, Write};
 use std::path::PathBuf;
 use std::time::Instant;
-use std::collections::HashMap;
 
-#[derive(Clone, Debug)]
 pub struct Polygon {
     pub points: Vec<Point3<f32>>,
     pub color: LdrawColor,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum LdrawColor {
     Main,
     Complement,
@@ -233,20 +231,7 @@ pub fn norm(p: &Polygon) -> Vector3<f32> {
     }
 }
 
-#[derive(Hash, PartialEq, Debug)]
-pub struct CacheKey {
-    name: String,
-    inverted: bool,
-}
-
-// TODO can probably just derive Eq
-impl Eq for CacheKey {}
-
-
-fn read_file(cache: &mut HashMap<CacheKey, Vec<Polygon>>, ldraw_directory: &str, filename: &str, inverted: bool) -> Vec<Polygon> {
-    if let Some(polygon) = cache.get(&CacheKey { name: filename.into(), inverted }) {
-        return polygon.clone();
-    }
+pub fn read_file(ldraw_directory: &str, filename: &str, inverted: bool) -> Vec<Polygon> {
     let mut polygons = Vec::new();
     // TODO: Also allow current part's directory
     let filename = filename.to_lowercase();
@@ -333,7 +318,6 @@ fn read_file(cache: &mut HashMap<CacheKey, Vec<Polygon>>, ldraw_directory: &str,
                             invert_this = !invert_this;
                         }
                         let sub_polygons = read_file(
-                            cache,
                             ldraw_directory,
                             &str::replace(data[12], "\\", "/"),
                             invert_this,
@@ -417,26 +401,7 @@ fn read_file(cache: &mut HashMap<CacheKey, Vec<Polygon>>, ldraw_directory: &str,
             }
         }
     }
-    cache.insert(CacheKey { name: filename, inverted }, polygons.to_vec());
     polygons
-}
-
-pub struct Parser {
-    cache: HashMap<CacheKey, Vec<Polygon>>,
-    ldraw_directory: String,
-}
-
-impl Parser {
-    pub fn new(ldraw_directory: &str) -> Self {
-        Self {
-            cache: HashMap::new(),
-            ldraw_directory: ldraw_directory.into(),
-        }
-    }
-
-    pub fn load(&mut self, filename: &str) -> Vec<Polygon> {
-        read_file(&mut self.cache, &self.ldraw_directory, filename, false)
-    }
 }
 
 pub fn write_obj(polygons: &[Polygon], filename: &str) -> Result<()> {

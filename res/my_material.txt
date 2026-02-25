@@ -1,0 +1,38 @@
+Material(Material { shader: Shader { id: 3, locs: [0, 1, -1, -1, -1, 3, 1, -1, -1, -1, -1, 0, -1, -1, 2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1] }, maps: [MaterialMap { texture: Texture2D { id: 1, width: 1, height: 1, mipmaps: 1, format: 7 }, color: Color { r: 255, g: 0, b: 0, a: 255 }, value: 0.0 }, MaterialMap { texture: Texture2D { id: 0, width: 0, height: 0, mipmaps: 0, format: 0 }, color: Color { r: 0, g: 0, b: 0, a: 255 }, value: 0.0 }, MaterialMap { texture: Texture2D { id: 0, width: 0, height: 0, mipmaps: 0, format: 0 }, color: Color { r: 255, g: 255, b: 255, a: 255 }, value: 0.0 }, MaterialMap { texture: Texture2D { id: 0, width: 0, height: 0, mipmaps: 0, format: 0 }, color: Color { r: 0, g: 0, b: 0, a: 0 }, value: 0.0 }, MaterialMap { texture: Texture2D { id: 0, width: 0, height: 0, mipmaps: 0, format: 0 }, color: Color { r: 0, g: 0, b: 0, a: 0 }, value: 0.0 }, MaterialMap { texture: Texture2D { id: 0, width: 0, height: 0, mipmaps: 0, format: 0 }, color: Color { r: 0, g: 0, b: 0, a: 255 }, value: 0.0 }, MaterialMap { texture: Texture2D { id: 0, width: 0, height: 0, mipmaps: 0, format: 0 }, color: Color { r: 0, g: 0, b: 0, a: 0 }, value: 0.0 }, MaterialMap { texture: Texture2D { id: 0, width: 0, height: 0, mipmaps: 0, format: 0 }, color: Color { r: 0, g: 0, b: 0, a: 0 }, value: 0.0 }, MaterialMap { texture: Texture2D { id: 0, width: 0, height: 0, mipmaps: 0, format: 0 }, color: Color { r: 0, g: 0, b: 0, a: 0 }, value: 0.0 }, MaterialMap { texture: Texture2D { id: 0, width: 0, height: 0, mipmaps: 0, format: 0 }, color: Color { r: 0, g: 0, b: 0, a: 0 }, value: 0.0 }, MaterialMap { texture: Texture2D { id: 0, width: 0, height: 0, mipmaps: 0, format: 0 }, color: Color { r: 0, g: 0, b: 0, a: 0 }, value: 0.0 }, MaterialMap { texture: Texture2D { id: 0, width: 0, height: 0, mipmaps: 0, format: 0 }, color: Color { r: 0, g: 0, b: 0, a: 0 }, value: 0.0 }], params: 0x0 })
+INFO: Initializing raylib 2.5
+INFO: Display device initialized successfully
+INFO: Display size: 2560 x 1440
+INFO: Render size: 640 x 480
+INFO: Screen size: 640 x 480
+INFO: Viewport offsets: 0, 0
+INFO: GLAD: OpenGL extensions loaded successfully
+INFO: OpenGL 3.3 Core profile supported
+INFO: GPU: Vendor:   NVIDIA Corporation
+INFO: GPU: Renderer: GeForce GTX 980/PCIe/SSE2
+INFO: GPU: Version:  3.3.0 NVIDIA 440.44
+INFO: GPU: GLSL:     3.30 NVIDIA via Cg compiler
+INFO: Number of supported extensions: 381
+INFO: [EXTENSION] DXT compressed textures supported
+INFO: [EXTENSION] ETC2/EAC compressed textures supported
+INFO: [EXTENSION] Anisotropic textures filtering supported (max: 16X)
+INFO: [EXTENSION] Mirror clamp wrap texture mode supported
+INFO: [TEX ID 1] Texture created successfully (1x1 - 1 mipmaps)
+INFO: [TEX ID 1] Base white texture loaded successfully
+INFO: [SHDR ID 1] Shader compiled successfully
+INFO: [SHDR ID 2] Shader compiled successfully
+INFO: [SHDR ID 3] Shader program loaded successfully
+INFO: [SHDR ID 3] Default shader loaded successfully
+INFO: Internal buffers initialized successfully (CPU)
+INFO: Internal buffers uploaded successfully (GPU)
+INFO: OpenGL default states initialized successfully
+INFO: [TEX ID 2] Texture created successfully (128x128 - 1 mipmaps)
+INFO: [TEX ID 2] Default font loaded successfully
+INFO: Target time per frame: 16.667 milliseconds
+INFO: [test.obj] Model data loaded successfully: 1 meshes / 1 materials
+INFO: [test.obj] Model loaded successfully in RAM (CPU)
+INFO: [VAO ID 2] Mesh uploaded successfully to VRAM (GPU)
+INFO: [VAO ID 2] Unloaded model data from VRAM (GPU)
+INFO: Unloaded model data from RAM and VRAM
+INFO: [TEX ID 2] Unloaded texture data from VRAM (GPU)
+INFO: [TEX ID 1] Unloaded texture data (base white texture) from VRAM
+INFO: Window closed successfully
